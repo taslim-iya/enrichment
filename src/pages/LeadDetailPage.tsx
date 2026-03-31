@@ -1,20 +1,44 @@
 import { useState, useEffect } from 'react';
-import { useParams, useNavigate, Link } from 'react-router-dom';
-import { Button } from '@/components/ui/button';
-import { Input } from '@/components/ui/input';
-import { Label } from '@/components/ui/label';
-import { Textarea } from '@/components/ui/textarea';
-import { Badge } from '@/components/ui/badge';
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
-import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import { Separator } from '@/components/ui/separator';
-import { db, type Lead, type Contact } from '@/lib/db';
-import { ALL_STATUSES, getStatusColor, getScoreColor, formatPhone, INDUSTRY_LABELS } from '@/lib/constants';
-import {
-  ArrowLeft, ExternalLink, Save, Loader2, Link2, Phone, Mail,
-  Building2, MapPin,  Globe, User, FileText,
-} from 'lucide-react';
+import { useParams, useNavigate } from 'react-router-dom';
+import { db, type Lead, type Contact } from '../lib/db';
+import { ALL_STATUSES, INDUSTRY_LABELS, formatPhone } from '../lib/constants';
+import { ArrowLeft, ExternalLink, Save, Loader2 } from 'lucide-react';
+
+const STATUS_BADGE: Record<string, { bg: string; color: string }> = {
+  New: { bg: '#E8F5E9', color: '#2E7D32' },
+  Contacted: { bg: '#E3F2FD', color: '#1565C0' },
+  Booked: { bg: '#E0F2F1', color: '#00695C' },
+  Qualified: { bg: '#F3E5F5', color: '#7B1FA2' },
+  Won: { bg: '#E0F2F1', color: '#00695C' },
+  Lost: { bg: '#FFEBEE', color: '#C62828' },
+  'Bad Fit': { bg: '#FFEBEE', color: '#C62828' },
+  'Not Interested': { bg: '#FFF3E0', color: '#E65100' },
+  'Existing Partner': { bg: '#F3E5F5', color: '#7B1FA2' },
+  'Low Interest': { bg: '#FFFDE7', color: '#F57F17' },
+};
+
+const fieldStyle = {
+  label: { fontSize: 12, fontWeight: 600, color: '#8898aa', textTransform: 'uppercase' as const, letterSpacing: 0.5, marginBottom: 4, display: 'block' },
+  input: { width: '100%', padding: '9px 12px', border: '1px solid #E3E8EE', borderRadius: 8, fontSize: 14, background: '#fff', color: '#0A2540' },
+  select: { width: '100%', padding: '9px 12px', border: '1px solid #E3E8EE', borderRadius: 8, fontSize: 14, background: '#fff', color: '#0A2540', cursor: 'pointer' },
+  textarea: { width: '100%', padding: '9px 12px', border: '1px solid #E3E8EE', borderRadius: 8, fontSize: 14, background: '#fff', color: '#0A2540', resize: 'vertical' as const, minHeight: 100 },
+};
+
+function Card({ children, style = {} }: { children: React.ReactNode; style?: React.CSSProperties }) {
+  return (
+    <div style={{ background: '#fff', border: '1px solid #E3E8EE', borderRadius: 12, padding: 24, boxShadow: '0 1px 3px rgba(0,0,0,0.04)', ...style }}>
+      {children}
+    </div>
+  );
+}
+
+function SectionTitle({ children }: { children: React.ReactNode }) {
+  return (
+    <h3 style={{ fontSize: 14, fontWeight: 700, color: '#0A2540', marginBottom: 16, paddingBottom: 12, borderBottom: '1px solid #E3E8EE' }}>
+      {children}
+    </h3>
+  );
+}
 
 export default function LeadDetailPage() {
   const { id } = useParams<{ id: string }>();
@@ -24,6 +48,7 @@ export default function LeadDetailPage() {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
+  const [activeTab, setActiveTab] = useState<'overview' | 'contacts' | 'enrichment' | 'notes'>('overview');
 
   const [editStatus, setEditStatus] = useState('');
   const [editNotes, setEditNotes] = useState('');
@@ -48,18 +73,19 @@ export default function LeadDetailPage() {
         setEditName(l.contact_name ?? '');
         setEditTitle(l.contact_title ?? '');
         setEditEmail(l.email ?? '');
-        setEditPhone(l.mobile_phone ?? '');
+        setEditPhone(l.mobile_phone ?? l.phone_hq ?? '');
         setEditWebsite(l.website ?? '');
         setEditIndustry(l.industry ?? '');
       }
       setContacts(c);
       setLoading(false);
-    }).catch(() => setLoading(false));
+    });
   }, [id]);
 
   const handleSave = async () => {
     if (!lead?.id) return;
     setSaving(true);
+    const now = new Date().toISOString();
     await db.leads.update(lead.id, {
       status: editStatus,
       human_notes: editNotes,
@@ -69,322 +95,294 @@ export default function LeadDetailPage() {
       mobile_phone: editPhone,
       website: editWebsite,
       industry: editIndustry,
-      updated_at: new Date().toISOString(),
+      updated_at: now,
     });
-    setLead((prev) => prev ? {
-      ...prev, status: editStatus, human_notes: editNotes,
-      contact_name: editName, contact_title: editTitle,
-      email: editEmail, mobile_phone: editPhone,
-      website: editWebsite, industry: editIndustry,
-    } : prev);
+    setLead((prev) => prev ? { ...prev, status: editStatus, human_notes: editNotes, contact_name: editName, contact_title: editTitle, email: editEmail, mobile_phone: editPhone, website: editWebsite, industry: editIndustry, updated_at: now } : prev);
     setSaving(false);
     setSaved(true);
     setTimeout(() => setSaved(false), 2000);
   };
 
-  if (loading) return (
-    <div className="flex items-center justify-center h-64">
-      <Loader2 className="w-8 h-8 animate-spin text-[#95a2b3]" />
-    </div>
-  );
+  if (loading) {
+    return (
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: 400, color: '#8898aa' }}>
+        <Loader2 size={24} style={{ animation: 'spin 1s linear infinite' }} />
+      </div>
+    );
+  }
 
-  if (!lead) return (
-    <div className="text-center py-20">
-      <p className="text-[#95a2b3] text-lg">Lead not found.</p>
-      <Button variant="outline" className="mt-4" onClick={() => navigate('/leads')}>
-        <ArrowLeft className="w-4 h-4 mr-2" />Back to Leads
-      </Button>
-    </div>
-  );
+  if (!lead) {
+    return (
+      <div style={{ textAlign: 'center', padding: 80, color: '#8898aa' }}>
+        <div style={{ fontSize: 32, marginBottom: 12 }}>🔍</div>
+        <p style={{ fontSize: 16, fontWeight: 600, color: '#425466' }}>Lead not found</p>
+        <button onClick={() => navigate('/leads')} style={{ marginTop: 16, background: '#635BFF', color: '#fff', border: 'none', padding: '10px 20px', borderRadius: 8, cursor: 'pointer', fontWeight: 600 }}>
+          Back to Leads
+        </button>
+      </div>
+    );
+  }
 
-  const enrichmentData = lead.enrichment_data as Record<string, unknown> | null;
-  const recentNews = Array.isArray(lead.recent_news) ? lead.recent_news : [];
-  const scoreBreakdown = lead.score_breakdown as Record<string, unknown> | null;
+  const statusStyle = STATUS_BADGE[lead.status] ?? { bg: '#F6F9FC', color: '#425466' };
+  const score = lead.quality_score;
+  const scoreColor = score == null ? '#8898aa' : score >= 70 ? '#059669' : score >= 40 ? '#f59e0b' : '#E25950';
+
+  const tabs = [
+    { key: 'overview', label: 'Overview' },
+    { key: 'contacts', label: `Contacts (${contacts.length})` },
+    { key: 'enrichment', label: 'Enrichment' },
+    { key: 'notes', label: 'Notes' },
+  ];
 
   return (
-    <div className="max-w-5xl space-y-6">
+    <div>
       {/* Header */}
-      <div className="flex items-start justify-between">
-        <div className="flex items-start gap-4">
-          <Link to="/leads" className="mt-1 text-[#95a2b3] hover:text-[#f7f8f8]">
-            <ArrowLeft className="w-5 h-5" />
-          </Link>
-          <div>
-            <h1 className="text-xl font-bold tracking-tight" style={{ color: '#f7f8f8' }}>{lead.company_name}</h1>
-            <div className="flex items-center gap-3 mt-2 flex-wrap">
-              <Badge className={`text-sm border ${getStatusColor(lead.status)}`}>{lead.status}</Badge>
-              {lead.quality_score != null && (
-                <Badge className={`text-sm border font-bold ${getScoreColor(lead.quality_score)}`}>
-                  Score: {lead.quality_score}
-                </Badge>
-              )}
-              {lead.industry && (
-                <Badge className="text-sm bg-[#6C63FF]/20 text-[#a09dff] border-[#6C63FF]/30">
-                  {INDUSTRY_LABELS[lead.industry] ?? lead.industry}
-                </Badge>
-              )}
-              {lead.verified && (
-                <Badge className="text-sm bg-green-500/20 text-green-300 border-green-500/30">Verified</Badge>
-              )}
-            </div>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 16, marginBottom: 24 }}>
+        <button
+          onClick={() => navigate('/leads')}
+          style={{ display: 'flex', alignItems: 'center', gap: 6, background: 'none', border: 'none', cursor: 'pointer', color: '#8898aa', fontSize: 13, padding: '6px 0' }}
+        >
+          <ArrowLeft size={16} /> Back
+        </button>
+        <div style={{ flex: 1 }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+            <h1 style={{ fontSize: 24, fontWeight: 700, color: '#0A2540' }}>{lead.company_name}</h1>
+            <span style={{ display: 'inline-flex', alignItems: 'center', padding: '3px 10px', borderRadius: 20, fontSize: 12, fontWeight: 600, background: statusStyle.bg, color: statusStyle.color }}>
+              {lead.status}
+            </span>
+            {score != null && (
+              <span style={{ fontSize: 13, fontWeight: 700, color: scoreColor }}>Score: {score}</span>
+            )}
           </div>
+          <p style={{ fontSize: 13, color: '#8898aa', marginTop: 2 }}>
+            {[lead.city, lead.state].filter(Boolean).join(', ')}
+            {lead.industry ? ` · ${INDUSTRY_LABELS[lead.industry] ?? lead.industry}` : ''}
+          </p>
         </div>
-        <div className="flex items-center gap-2">
+        <div style={{ display: 'flex', gap: 10 }}>
           {lead.website && (
-            <a href={lead.website.startsWith('http') ? lead.website : `https://${lead.website}`}
-              target="_blank" rel="noopener noreferrer">
-              <Button variant="outline" size="sm"><ExternalLink className="w-4 h-4 mr-2" />Website</Button>
+            <a
+              href={lead.website.startsWith('http') ? lead.website : `https://${lead.website}`}
+              target="_blank"
+              rel="noopener noreferrer"
+              style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '9px 16px', border: '1px solid #E3E8EE', borderRadius: 8, fontSize: 13, fontWeight: 500, color: '#425466', textDecoration: 'none', background: '#fff' }}
+            >
+              <ExternalLink size={14} /> Website
             </a>
           )}
-          <Button size="sm" onClick={handleSave} disabled={saving}>
-            {saving ? <Loader2 className="w-4 h-4 animate-spin mr-2" /> : <Save className="w-4 h-4 mr-2" />}
-            {saved ? 'Saved!' : 'Save Changes'}
-          </Button>
+          <button
+            onClick={handleSave}
+            disabled={saving}
+            style={{ display: 'flex', alignItems: 'center', gap: 6, background: saved ? '#059669' : '#635BFF', color: '#fff', border: 'none', padding: '9px 20px', borderRadius: 8, fontSize: 13, fontWeight: 600, cursor: 'pointer' }}
+          >
+            {saving ? <Loader2 size={14} /> : <Save size={14} />}
+            {saved ? 'Saved!' : saving ? 'Saving...' : 'Save Changes'}
+          </button>
         </div>
       </div>
 
-      <Tabs defaultValue="overview">
-        <TabsList>
-          <TabsTrigger value="overview">Overview</TabsTrigger>
-          <TabsTrigger value="contacts">Contacts ({contacts.length})</TabsTrigger>
-          <TabsTrigger value="enrichment">Enrichment</TabsTrigger>
-          <TabsTrigger value="notes">Notes</TabsTrigger>
-        </TabsList>
+      {/* Tabs */}
+      <div style={{ display: 'flex', gap: 0, borderBottom: '1px solid #E3E8EE', marginBottom: 24 }}>
+        {tabs.map((tab) => (
+          <button
+            key={tab.key}
+            onClick={() => setActiveTab(tab.key as typeof activeTab)}
+            style={{
+              padding: '10px 20px',
+              border: 'none',
+              borderBottom: activeTab === tab.key ? '2px solid #635BFF' : '2px solid transparent',
+              background: 'none',
+              cursor: 'pointer',
+              fontSize: 14,
+              fontWeight: activeTab === tab.key ? 600 : 400,
+              color: activeTab === tab.key ? '#635BFF' : '#425466',
+              marginBottom: -1,
+            }}
+          >
+            {tab.label}
+          </button>
+        ))}
+      </div>
 
-        <TabsContent value="overview" className="space-y-4 mt-4">
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            {/* Company Info */}
-            <Card>
-              <CardHeader className="pb-3"><CardTitle className="text-sm flex items-center gap-2"><Building2 className="w-4 h-4" />Company Details</CardTitle></CardHeader>
-              <CardContent className="space-y-3">
-                <div className="grid grid-cols-2 gap-3 text-sm">
-                  <div>
-                    <p className="text-[#95a2b3] text-xs">Founded</p>
-                    <p className="text-[#f7f8f8]">{lead.founded_year ?? '-'}</p>
-                  </div>
-                  <div>
-                    <p className="text-[#95a2b3] text-xs">Employees</p>
-                    <p className="text-[#f7f8f8]">{lead.employee_count ?? '-'}</p>
-                  </div>
-                  <div>
-                    <p className="text-[#95a2b3] text-xs">Location</p>
-                    <p className="text-[#f7f8f8] flex items-center gap-1">
-                      <MapPin className="w-3 h-3" />{[lead.city, lead.state].filter(Boolean).join(', ') || '-'}
-                    </p>
-                  </div>
-                  <div>
-                    <p className="text-[#95a2b3] text-xs">Source</p>
-                    <p className="text-[#f7f8f8]">{lead.source ?? '-'}</p>
-                  </div>
-                </div>
-                {enrichmentData?.description ? (
-                  <div>
-                    <p className="text-[#95a2b3] text-xs mb-1">Description</p>
-                    <p className="text-[#f7f8f8]/80 text-xs">{String(enrichmentData.description)}</p>
-                  </div>
-                ) : null}
-                <div className="flex flex-wrap gap-2 pt-2">
-                  {lead.linkedin_url && (
-                    <a href={lead.linkedin_url} target="_blank" rel="noopener noreferrer"
-                      className="flex items-center gap-1 text-xs text-blue-400 hover:text-blue-300">
-                      <Link2 className="w-3.5 h-3.5" />LinkedIn
-                    </a>
-                  )}
-                  {lead.website && (
-                    <a href={lead.website.startsWith('http') ? lead.website : `https://${lead.website}`}
-                      target="_blank" rel="noopener noreferrer"
-                      className="flex items-center gap-1 text-xs text-blue-400 hover:text-blue-300">
-                      <Globe className="w-3.5 h-3.5" />Website
-                    </a>
-                  )}
-                </div>
-              </CardContent>
-            </Card>
+      {/* Overview Tab */}
+      {activeTab === 'overview' && (
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 20 }}>
+          <Card>
+            <SectionTitle>Contact Information</SectionTitle>
+            <div style={{ display: 'grid', gap: 14 }}>
+              <div>
+                <label style={fieldStyle.label}>Contact Name</label>
+                <input value={editName} onChange={(e) => setEditName(e.target.value)} style={fieldStyle.input} placeholder="Full name" />
+              </div>
+              <div>
+                <label style={fieldStyle.label}>Title</label>
+                <input value={editTitle} onChange={(e) => setEditTitle(e.target.value)} style={fieldStyle.input} placeholder="Job title" />
+              </div>
+              <div>
+                <label style={fieldStyle.label}>Email</label>
+                <input value={editEmail} onChange={(e) => setEditEmail(e.target.value)} style={fieldStyle.input} placeholder="email@company.com" type="email" />
+              </div>
+              <div>
+                <label style={fieldStyle.label}>Phone</label>
+                <input value={editPhone} onChange={(e) => setEditPhone(e.target.value)} style={fieldStyle.input} placeholder="(555) 555-5555" />
+              </div>
+            </div>
+          </Card>
 
-            {/* Edit Form */}
-            <Card>
-              <CardHeader className="pb-3"><CardTitle className="text-sm">Edit Lead</CardTitle></CardHeader>
-              <CardContent className="space-y-3">
+          <Card>
+            <SectionTitle>Company Information</SectionTitle>
+            <div style={{ display: 'grid', gap: 14 }}>
+              <div>
+                <label style={fieldStyle.label}>Website</label>
+                <input value={editWebsite} onChange={(e) => setEditWebsite(e.target.value)} style={fieldStyle.input} placeholder="https://company.com" />
+              </div>
+              <div>
+                <label style={fieldStyle.label}>Industry</label>
+                <select value={editIndustry} onChange={(e) => setEditIndustry(e.target.value)} style={fieldStyle.select}>
+                  <option value="">Select industry...</option>
+                  {Object.entries(INDUSTRY_LABELS).map(([k, v]) => (
+                    <option key={k} value={k}>{v}</option>
+                  ))}
+                </select>
+              </div>
+              <div>
+                <label style={fieldStyle.label}>Status</label>
+                <select value={editStatus} onChange={(e) => setEditStatus(e.target.value)} style={fieldStyle.select}>
+                  {ALL_STATUSES.map((s) => (
+                    <option key={s} value={s}>{s}</option>
+                  ))}
+                </select>
+              </div>
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
                 <div>
-                  <Label>Status</Label>
-                  <Select value={editStatus} onValueChange={setEditStatus}>
-                    <SelectTrigger><SelectValue /></SelectTrigger>
-                    <SelectContent>
-                      {ALL_STATUSES.map((s) => <SelectItem key={s} value={s}>{s}</SelectItem>)}
-                    </SelectContent>
-                  </Select>
-                </div>
-                <div>
-                  <Label>Industry</Label>
-                  <Input value={editIndustry} onChange={(e) => setEditIndustry(e.target.value)} placeholder="e.g. trucking" />
-                </div>
-                <div>
-                  <Label>Website</Label>
-                  <Input value={editWebsite} onChange={(e) => setEditWebsite(e.target.value)} placeholder="https://..." />
-                </div>
-              </CardContent>
-            </Card>
-
-            {/* Primary Contact */}
-            <Card>
-              <CardHeader className="pb-3"><CardTitle className="text-sm flex items-center gap-2"><User className="w-4 h-4" />Primary Contact</CardTitle></CardHeader>
-              <CardContent className="space-y-3">
-                <div className="grid grid-cols-2 gap-3">
-                  <div>
-                    <Label>Name</Label>
-                    <Input value={editName} onChange={(e) => setEditName(e.target.value)} placeholder="Contact name" />
-                  </div>
-                  <div>
-                    <Label>Title</Label>
-                    <Input value={editTitle} onChange={(e) => setEditTitle(e.target.value)} placeholder="Job title" />
-                  </div>
+                  <label style={fieldStyle.label}>City</label>
+                  <input value={lead.city ?? ''} readOnly style={{ ...fieldStyle.input, background: '#F6F9FC', color: '#425466' }} />
                 </div>
                 <div>
-                  <Label>Email</Label>
-                  <div className="flex items-center gap-2">
-                    <Mail className="w-4 h-4 text-[#95a2b3] shrink-0" />
-                    <Input value={editEmail} onChange={(e) => setEditEmail(e.target.value)} placeholder="email@company.com" className="flex-1" />
-                  </div>
+                  <label style={fieldStyle.label}>State</label>
+                  <input value={lead.state ?? ''} readOnly style={{ ...fieldStyle.input, background: '#F6F9FC', color: '#425466' }} />
                 </div>
-                <div>
-                  <Label>Phone</Label>
-                  <div className="flex items-center gap-2">
-                    <Phone className="w-4 h-4 text-[#95a2b3] shrink-0" />
-                    <Input value={editPhone} onChange={(e) => setEditPhone(e.target.value)} placeholder="(555) 555-5555" className="flex-1" />
-                  </div>
-                </div>
-              </CardContent>
-            </Card>
+              </div>
+            </div>
+          </Card>
 
-            {/* Signals */}
-            {(lead.hiring_signals || recentNews.length > 0) && (
-              <Card>
-                <CardHeader className="pb-3"><CardTitle className="text-sm">Signals</CardTitle></CardHeader>
-                <CardContent className="space-y-3">
-                  {lead.hiring_signals && (
-                    <div>
-                      <p className="text-xs text-[#95a2b3] uppercase mb-1">Hiring Signals</p>
-                      <p className="text-sm text-[#f7f8f8]/80">{lead.hiring_signals}</p>
-                    </div>
-                  )}
-                  {recentNews.length > 0 && (
-                    <div>
-                      <p className="text-xs text-[#95a2b3] uppercase mb-1">Recent News</p>
-                      <div className="space-y-1">
-                        {recentNews.slice(0, 5).map((n, i) => (
-                          <div key={i} className="text-xs">
-                            {n.url ? (
-                              <a href={n.url} target="_blank" rel="noopener noreferrer" className="text-blue-400 hover:text-blue-300">{n.title ?? 'News'}</a>
-                            ) : <p className="text-[#f7f8f8]/80">{n.title ?? 'News'}</p>}
-                            {n.date && <p className="text-[#5c6370] text-[10px]">{n.date}</p>}
-                          </div>
-                        ))}
-                      </div>
-                    </div>
-                  )}
-                </CardContent>
-              </Card>
-            )}
-          </div>
-        </TabsContent>
+          <Card style={{ gridColumn: '1 / -1' }}>
+            <SectionTitle>Notes</SectionTitle>
+            <textarea
+              value={editNotes}
+              onChange={(e) => setEditNotes(e.target.value)}
+              style={fieldStyle.textarea}
+              placeholder="Add notes about this lead..."
+            />
+          </Card>
+        </div>
+      )}
 
-        <TabsContent value="contacts" className="mt-4">
-          {contacts.length > 0 ? (
-            <Card>
-              <CardContent className="p-0">
-                <table className="w-full text-sm">
-                  <thead className="bg-[#1a1a24] border-b border-[#1f1f2e]">
-                    <tr>
-                      {['Name', 'Title', 'Email', 'Phone', 'Source', 'Verified'].map((h) => (
-                        <th key={h} className="px-4 py-2 text-left text-xs font-medium text-[#95a2b3]">{h}</th>
-                      ))}
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-[#1f1f2e]">
-                    {contacts.map((c, i) => (
-                      <tr key={i} className="hover:bg-[#1a1a24]/50">
-                        <td className="px-4 py-3 text-[#f7f8f8] font-medium">{c.name}</td>
-                        <td className="px-4 py-3 text-[#95a2b3]">{c.title ?? '-'}</td>
-                        <td className="px-4 py-3">{c.email ? <a href={`mailto:${c.email}`} className="text-blue-400 hover:text-blue-300">{c.email}</a> : '-'}</td>
-                        <td className="px-4 py-3 font-mono text-xs">{c.phone ? formatPhone(c.phone) : '-'}</td>
-                        <td className="px-4 py-3 text-[#95a2b3] text-xs">{c.source ?? '-'}</td>
-                        <td className="px-4 py-3">{c.verified ? <Badge className="text-xs bg-green-500/20 text-green-300 border-green-500/30">Yes</Badge> : '-'}</td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </CardContent>
+      {/* Contacts Tab */}
+      {activeTab === 'contacts' && (
+        <div>
+          {contacts.length === 0 ? (
+            <Card style={{ textAlign: 'center', padding: 60 }}>
+              <div style={{ fontSize: 32, marginBottom: 12 }}>👤</div>
+              <p style={{ fontSize: 15, fontWeight: 600, color: '#425466' }}>No contacts yet</p>
+              <p style={{ fontSize: 13, color: '#8898aa', marginTop: 4 }}>Enrich this lead to find contacts.</p>
             </Card>
           ) : (
-            <Card>
-              <CardContent className="p-8 text-center text-[#95a2b3]">No contacts for this lead.</CardContent>
-            </Card>
+            <div style={{ display: 'grid', gap: 12 }}>
+              {contacts.map((c) => (
+                <Card key={c.id}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+                    <div>
+                      <p style={{ fontSize: 15, fontWeight: 600, color: '#0A2540' }}>{c.name}</p>
+                      {c.title && <p style={{ fontSize: 13, color: '#8898aa', marginTop: 2 }}>{c.title}</p>}
+                    </div>
+                    {c.verified && (
+                      <span style={{ fontSize: 11, fontWeight: 600, color: '#059669', background: '#ECFDF5', padding: '2px 8px', borderRadius: 12 }}>Verified</span>
+                    )}
+                  </div>
+                  <div style={{ display: 'flex', gap: 20, marginTop: 12, flexWrap: 'wrap' }}>
+                    {c.email && <span style={{ fontSize: 13, color: '#635BFF' }}>✉ {c.email}</span>}
+                    {c.phone && <span style={{ fontSize: 13, color: '#425466' }}>📞 {formatPhone(c.phone)}</span>}
+                    {c.linkedin_url && (
+                      <a href={c.linkedin_url} target="_blank" rel="noopener noreferrer" style={{ fontSize: 13, color: '#0A66C2', textDecoration: 'none' }}>in LinkedIn</a>
+                    )}
+                  </div>
+                </Card>
+              ))}
+            </div>
           )}
-        </TabsContent>
+        </div>
+      )}
 
-        <TabsContent value="enrichment" className="mt-4 space-y-4">
+      {/* Enrichment Tab */}
+      {activeTab === 'enrichment' && (
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 20 }}>
           <Card>
-            <CardHeader className="pb-3"><CardTitle className="text-sm">Enrichment Data</CardTitle></CardHeader>
-            <CardContent>
-              <div className="grid grid-cols-2 md:grid-cols-3 gap-3 text-sm">
-                <div>
-                  <p className="text-xs text-[#95a2b3]">Completeness</p>
-                  <p className="text-[#f7f8f8]">{lead.enrichment_completeness != null ? `${lead.enrichment_completeness}%` : '-'}</p>
+            <SectionTitle>Enrichment Data</SectionTitle>
+            <div style={{ display: 'grid', gap: 12 }}>
+              {[
+                { label: 'Employee Count', value: lead.employee_count },
+                { label: 'Founded Year', value: lead.founded_year?.toString() },
+                { label: 'Enrichment Completeness', value: lead.enrichment_completeness != null ? `${lead.enrichment_completeness}%` : null },
+                { label: 'Data Sources', value: lead.data_sources_hit },
+              ].map(({ label, value }) => (
+                <div key={label} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', paddingBottom: 10, borderBottom: '1px solid #F6F9FC' }}>
+                  <span style={{ fontSize: 13, color: '#8898aa' }}>{label}</span>
+                  <span style={{ fontSize: 13, fontWeight: 600, color: '#0A2540' }}>{value ?? '—'}</span>
                 </div>
-                <div>
-                  <p className="text-xs text-[#95a2b3]">Data Sources</p>
-                  <p className="text-[#f7f8f8] text-xs">{lead.data_sources_hit || '-'}</p>
-                </div>
-                {enrichmentData && Object.entries(enrichmentData).slice(0, 6).map(([k, v]) => (
-                  <div key={k}>
-                    <p className="text-xs text-[#95a2b3] capitalize">{k.replace(/_/g, ' ')}</p>
-                    <p className="text-[#f7f8f8] text-xs truncate">{String(v)}</p>
+              ))}
+            </div>
+          </Card>
+          <Card>
+            <SectionTitle>Recent News</SectionTitle>
+            {!lead.recent_news?.length ? (
+              <p style={{ fontSize: 13, color: '#8898aa' }}>No recent news found.</p>
+            ) : (
+              <div style={{ display: 'grid', gap: 12 }}>
+                {lead.recent_news.map((n, i) => (
+                  <div key={i} style={{ paddingBottom: 10, borderBottom: '1px solid #F6F9FC' }}>
+                    {n.url ? (
+                      <a href={n.url} target="_blank" rel="noopener noreferrer" style={{ fontSize: 13, color: '#635BFF', textDecoration: 'none', fontWeight: 500 }}>
+                        {n.title}
+                      </a>
+                    ) : (
+                      <p style={{ fontSize: 13, color: '#0A2540' }}>{n.title}</p>
+                    )}
+                    {n.date && <p style={{ fontSize: 11, color: '#8898aa', marginTop: 2 }}>{n.date}</p>}
                   </div>
                 ))}
               </div>
-              {scoreBreakdown && (
-                <>
-                  <Separator className="my-4" />
-                  <p className="text-xs font-semibold text-[#95a2b3] uppercase mb-2">Score Breakdown</p>
-                  <div className="grid grid-cols-2 md:grid-cols-4 gap-2">
-                    {Object.entries(scoreBreakdown).map(([k, v]) => (
-                      <div key={k} className="text-xs bg-[#1a1a24] rounded px-2 py-1">
-                        <span className="text-[#95a2b3]">{k.replace(/_/g, ' ')}: </span>
-                        <span className="text-[#f7f8f8] font-medium">{String(v)}</span>
-                      </div>
-                    ))}
-                  </div>
-                </>
-              )}
-            </CardContent>
+            )}
           </Card>
-        </TabsContent>
+          {lead.hiring_signals && (
+            <Card style={{ gridColumn: '1 / -1' }}>
+              <SectionTitle>Hiring Signals</SectionTitle>
+              <p style={{ fontSize: 13, color: '#425466', lineHeight: 1.6 }}>{lead.hiring_signals}</p>
+            </Card>
+          )}
+        </div>
+      )}
 
-        <TabsContent value="notes" className="mt-4">
+      {/* Notes Tab */}
+      {activeTab === 'notes' && (
+        <div style={{ display: 'grid', gap: 20 }}>
           <Card>
-            <CardHeader className="pb-3"><CardTitle className="text-sm flex items-center gap-2"><FileText className="w-4 h-4" />Notes</CardTitle></CardHeader>
-            <CardContent className="space-y-4">
-              <div>
-                <Label>Your Notes</Label>
-                <Textarea value={editNotes} onChange={(e) => setEditNotes(e.target.value)}
-                  placeholder="Add notes about this lead..." className="min-h-32" />
-              </div>
-              {lead.agent_notes && (
-                <div>
-                  <Label>Agent Notes (read-only)</Label>
-                  <p className="text-sm text-[#95a2b3] whitespace-pre-line bg-[#1a1a24]/50 rounded p-3 border-l-2 border-[#1f1f2e]">
-                    {lead.agent_notes}
-                  </p>
-                </div>
-              )}
-              <Button onClick={handleSave} disabled={saving}>
-                {saving ? <Loader2 className="w-4 h-4 animate-spin mr-2" /> : <Save className="w-4 h-4 mr-2" />}
-                {saved ? 'Saved!' : 'Save Notes'}
-              </Button>
-            </CardContent>
+            <SectionTitle>Your Notes</SectionTitle>
+            <textarea
+              value={editNotes}
+              onChange={(e) => setEditNotes(e.target.value)}
+              style={{ ...fieldStyle.textarea, minHeight: 160 }}
+              placeholder="Add your notes about this lead..."
+            />
           </Card>
-        </TabsContent>
-      </Tabs>
+          {lead.agent_notes && (
+            <Card>
+              <SectionTitle>AI Notes</SectionTitle>
+              <p style={{ fontSize: 13, color: '#425466', lineHeight: 1.7, whiteSpace: 'pre-wrap' }}>{lead.agent_notes}</p>
+            </Card>
+          )}
+        </div>
+      )}
     </div>
   );
 }

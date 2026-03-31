@@ -1,195 +1,156 @@
 import { useState, useEffect } from 'react';
-import { Link } from 'react-router-dom';
-import { Card, CardContent } from '@/components/ui/card';
-import { Badge } from '@/components/ui/badge';
-import { Button } from '@/components/ui/button';
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import { db, type Lead, type TeamMember, type LeadAssignment } from '@/lib/db';
-import { getScoreColor, getStatusColor, formatPhone, ALL_STATUSES } from '@/lib/constants';
-import { PhoneCall, ExternalLink, CheckCheck } from 'lucide-react';
+import { useNavigate } from 'react-router-dom';
+import { db, type Lead, type TeamMember, type LeadAssignment } from '../lib/db';
+import { formatPhone } from '../lib/constants';
+import { PhoneCall, CheckCircle, XCircle } from 'lucide-react';
 
-interface CallLead extends Lead {
-  assignedMember?: TeamMember;
-}
+const STATUS_BADGE: Record<string, { bg: string; color: string }> = {
+  New: { bg: '#E8F5E9', color: '#2E7D32' },
+  Contacted: { bg: '#E3F2FD', color: '#1565C0' },
+  Booked: { bg: '#E0F2F1', color: '#00695C' },
+  'Bad Fit': { bg: '#FFEBEE', color: '#C62828' },
+  'Not Interested': { bg: '#FFF3E0', color: '#E65100' },
+  'Existing Partner': { bg: '#F3E5F5', color: '#7B1FA2' },
+  'Low Interest': { bg: '#FFFDE7', color: '#F57F17' },
+};
 
 export default function CallSheetPage() {
-  const [leads, setLeads] = useState<CallLead[]>([]);
-  const [teamMembers, setTeamMembers] = useState<TeamMember[]>([]);
-  const [selectedMember, setSelectedMember] = useState<string>('all');
-  const [loading, setLoading] = useState(true);
+  const [leads, setLeads] = useState<Lead[]>([]);
+  const [members, setMembers] = useState<TeamMember[]>([]);
+  const [assignments, setAssignments] = useState<LeadAssignment[]>([]);
+  const [selectedMember, setSelectedMember] = useState<number | null>(null);
+  const navigate = useNavigate();
 
   useEffect(() => {
-    db.team_members.toArray().then(setTeamMembers).catch(() => {});
-    loadLeads();
+    Promise.all([
+      db.leads.toArray(),
+      db.team_members.toArray(),
+      db.lead_assignments.toArray(),
+    ]).then(([l, m, a]) => {
+      setLeads(l);
+      setMembers(m.filter((m) => m.active));
+      setAssignments(a);
+    });
   }, []);
 
-  const loadLeads = async () => {
-    setLoading(true);
-    try {
-      const assignments: LeadAssignment[] = await db.lead_assignments.toArray();
-      const allLeads = await db.leads.where('status').anyOf(['New', 'Contacted', 'Low Interest']).toArray();
+  const myAssignments = selectedMember
+    ? assignments.filter((a) => a.team_member_id === selectedMember)
+    : [];
+  const myLeadIds = new Set(myAssignments.map((a) => a.lead_id));
+  const myLeads = leads.filter((l) => l.id != null && myLeadIds.has(l.id!));
 
-      const callLeads: CallLead[] = await Promise.all(
-        allLeads.map(async (l) => {
-          const assign = assignments.find((a) => a.lead_id === l.id);
-          if (assign) {
-            const member = await db.team_members.get(assign.team_member_id);
-            return { ...l, assignedMember: member };
-          }
-          return l;
-        })
-      );
-
-      // Sort by quality_score desc
-      callLeads.sort((a, b) => (b.quality_score ?? 0) - (a.quality_score ?? 0));
-      setLeads(callLeads);
-    } catch (err) {
-      console.error(err);
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const handleStatusChange = async (leadId: number, status: string) => {
-    await db.leads.update(leadId, { status, updated_at: new Date().toISOString() });
-    setLeads((prev) => prev.map((l) => l.id === leadId ? { ...l, status } : l));
-  };
-
-  const filtered = selectedMember === 'all'
-    ? leads
-    : selectedMember === 'unassigned'
-    ? leads.filter((l) => !l.assignedMember)
-    : leads.filter((l) => l.assignedMember?.id === parseInt(selectedMember));
+  const newCount = myLeads.filter((l) => l.status === 'New').length;
+  const contactedCount = myLeads.filter((l) => l.status === 'Contacted').length;
+  const bookedCount = myLeads.filter((l) => l.status === 'Booked').length;
 
   return (
-    <div className="space-y-6 max-w-5xl">
-      <div className="flex items-center justify-between">
+    <div>
+      {/* Header */}
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 24 }}>
         <div>
-          <h1 className="text-xl font-bold tracking-tight" style={{ color: '#f7f8f8' }}>For Me</h1>
-          <p className="text-[13px] mt-0.5" style={{ color: '#5c6370' }}>Your call sheet — leads to contact today</p>
+          <h1 style={{ fontSize: 24, fontWeight: 700, color: '#0A2540' }}>Call Sheet</h1>
+          <p style={{ fontSize: 13, color: '#8898aa', marginTop: 2 }}>Your assigned leads to call today</p>
         </div>
-        <div className="flex items-center gap-3">
-          <Select value={selectedMember} onValueChange={setSelectedMember}>
-            <SelectTrigger className="w-44"><SelectValue placeholder="Filter by member" /></SelectTrigger>
-            <SelectContent>
-              <SelectItem value="all">All Members</SelectItem>
-              <SelectItem value="unassigned">Unassigned</SelectItem>
-              {teamMembers.filter((m) => m.active).map((m) => (
-                <SelectItem key={m.id} value={String(m.id)}>{m.name}</SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+          <label style={{ fontSize: 13, color: '#425466', fontWeight: 500 }}>View as:</label>
+          <select
+            value={selectedMember ?? ''}
+            onChange={(e) => setSelectedMember(e.target.value ? parseInt(e.target.value) : null)}
+            style={{ padding: '9px 14px', border: '1px solid #E3E8EE', borderRadius: 8, fontSize: 13, background: '#fff', color: '#0A2540', cursor: 'pointer' }}
+          >
+            <option value="">Select team member...</option>
+            {members.map((m) => (
+              <option key={m.id} value={m.id}>{m.name}</option>
+            ))}
+          </select>
         </div>
       </div>
 
-      <div className="grid grid-cols-3 gap-4">
-        <Card>
-          <CardContent className="p-4 text-center">
-            <p className="text-2xl font-bold text-[#f7f8f8]">{filtered.length}</p>
-            <p className="text-xs text-[#95a2b3]">Total on sheet</p>
-          </CardContent>
-        </Card>
-        <Card>
-          <CardContent className="p-4 text-center">
-            <p className="text-2xl font-bold text-[#6C63FF]">{filtered.filter((l) => l.status === 'New').length}</p>
-            <p className="text-xs text-[#95a2b3]">Not yet contacted</p>
-          </CardContent>
-        </Card>
-        <Card>
-          <CardContent className="p-4 text-center">
-            <p className="text-2xl font-bold text-[#00D4AA]">{filtered.filter((l) => l.quality_score && l.quality_score >= 70).length}</p>
-            <p className="text-xs text-[#95a2b3]">High quality (70+)</p>
-          </CardContent>
-        </Card>
-      </div>
-
-      {loading ? (
-        <p className="text-[#95a2b3] text-center py-12">Loading...</p>
-      ) : filtered.length === 0 ? (
-        <Card>
-          <CardContent className="p-8 text-center">
-            <PhoneCall className="w-12 h-12 mx-auto mb-4 text-[#95a2b3]/30" />
-            <p className="text-[#95a2b3]">No leads on your call sheet.</p>
-          </CardContent>
-        </Card>
+      {!selectedMember ? (
+        <div style={{ background: '#fff', border: '1px solid #E3E8EE', borderRadius: 12, padding: 60, textAlign: 'center', boxShadow: '0 1px 3px rgba(0,0,0,0.04)' }}>
+          <div style={{ fontSize: 36, marginBottom: 12 }}>📋</div>
+          <p style={{ fontSize: 15, fontWeight: 600, color: '#425466' }}>Select a team member</p>
+          <p style={{ fontSize: 13, color: '#8898aa', marginTop: 4 }}>Choose a team member above to see their call sheet.</p>
+        </div>
       ) : (
-        <div className="space-y-3">
-          {filtered.map((lead) => (
-            <Card key={lead.id} className="hover:border-[#6C63FF]/30 transition-colors">
-              <CardContent className="p-4">
-                <div className="flex items-start justify-between gap-4">
-                  <div className="flex-1 min-w-0">
-                    <div className="flex items-center gap-2 flex-wrap">
-                      <Link to={`/leads/${lead.id}`} className="font-semibold text-[#f7f8f8] hover:text-[#6C63FF]">
-                        {lead.company_name}
-                      </Link>
-                      {lead.quality_score != null && (
-                        <Badge className={`text-xs border font-bold ${getScoreColor(lead.quality_score)}`}>
-                          {lead.quality_score}
-                        </Badge>
-                      )}
-                      <Badge className={`text-xs border ${getStatusColor(lead.status)}`}>{lead.status}</Badge>
-                      {lead.state && <span className="text-xs font-mono text-[#95a2b3]">{lead.state}</span>}
-                    </div>
-                    <div className="mt-2 flex flex-wrap gap-4 text-sm text-[#95a2b3]">
-                      {lead.contact_name && (
-                        <span className="flex items-center gap-1">
-                          <span className="font-medium text-[#f7f8f8]">{lead.contact_name}</span>
-                          {lead.contact_title && <span>— {lead.contact_title}</span>}
-                        </span>
-                      )}
-                      {(lead.mobile_phone || lead.phone_hq) && (
-                        <span className="font-mono text-green-400 flex items-center gap-1">
-                          <PhoneCall className="w-3 h-3" />
-                          {formatPhone(lead.mobile_phone || lead.phone_hq)}
-                        </span>
-                      )}
-                      {lead.email && (
-                        <a href={`mailto:${lead.email}`} className="text-blue-400 hover:text-blue-300 text-xs">{lead.email}</a>
-                      )}
-                    </div>
-                    {lead.human_notes && (
-                      <p className="mt-2 text-xs text-[#95a2b3] line-clamp-2">{lead.human_notes}</p>
-                    )}
-                  </div>
-                  <div className="flex items-center gap-2 shrink-0">
-                    {lead.assignedMember && (
-                      <div className="w-7 h-7 rounded-full flex items-center justify-center text-xs font-bold text-white"
-                        style={{ backgroundColor: lead.assignedMember.avatar_color ?? '#6b7280' }}
-                        title={lead.assignedMember.name}>
-                        {lead.assignedMember.name.charAt(0).toUpperCase()}
-                      </div>
-                    )}
-                    <Button size="sm" variant="secondary" onClick={() => handleStatusChange(lead.id!, 'Contacted')}>
-                      <PhoneCall className="w-3.5 h-3.5 mr-1" />Called
-                    </Button>
-                    <Button size="sm" variant="secondary" onClick={() => handleStatusChange(lead.id!, 'Booked')}>
-                      <CheckCheck className="w-3.5 h-3.5 mr-1" />Booked
-                    </Button>
-                    <Link to={`/leads/${lead.id}`}>
-                      <Button size="icon" variant="ghost" className="h-8 w-8">
-                        <ExternalLink className="w-4 h-4" />
-                      </Button>
-                    </Link>
-                  </div>
-                </div>
-              </CardContent>
-            </Card>
-          ))}
-        </div>
-      )}
+        <>
+          {/* Stats */}
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3,1fr)', gap: 16, marginBottom: 24 }}>
+            {[
+              { label: 'Total Assigned', value: myLeads.length, borderColor: '#635BFF' },
+              { label: 'New', value: newCount, borderColor: '#059669' },
+              { label: 'Contacted', value: contactedCount, borderColor: '#3b82f6' },
+            ].map((stat) => (
+              <div key={stat.label} style={{ background: '#fff', border: '1px solid #E3E8EE', borderLeft: `3px solid ${stat.borderColor}`, borderRadius: 12, padding: '20px 24px', boxShadow: '0 1px 3px rgba(0,0,0,0.04)' }}>
+                <p style={{ fontSize: 12, fontWeight: 600, color: '#8898aa', textTransform: 'uppercase', letterSpacing: 0.5 }}>{stat.label}</p>
+                <p style={{ fontSize: 28, fontWeight: 700, color: '#0A2540', marginTop: 4 }}>{stat.value}</p>
+              </div>
+            ))}
+          </div>
 
-      {/* Status filter pills */}
-      <div className="flex gap-2 flex-wrap">
-        {ALL_STATUSES.map((s) => {
-          const count = filtered.filter((l) => l.status === s).length;
-          return count > 0 ? (
-            <Badge key={s} className={`text-xs border cursor-pointer ${getStatusColor(s)}`}>
-              {s}: {count}
-            </Badge>
-          ) : null;
-        })}
-      </div>
+          {/* Lead List */}
+          {myLeads.length === 0 ? (
+            <div style={{ background: '#fff', border: '1px solid #E3E8EE', borderRadius: 12, padding: 60, textAlign: 'center' }}>
+              <PhoneCall size={32} style={{ color: '#8898aa', marginBottom: 12 }} />
+              <p style={{ fontSize: 15, fontWeight: 600, color: '#425466' }}>No leads assigned</p>
+              <p style={{ fontSize: 13, color: '#8898aa', marginTop: 4 }}>Assign leads to this team member from the Leads page.</p>
+            </div>
+          ) : (
+            <div style={{ background: '#fff', border: '1px solid #E3E8EE', borderRadius: 12, overflow: 'hidden', boxShadow: '0 1px 3px rgba(0,0,0,0.04)' }}>
+              <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+                <thead>
+                  <tr style={{ background: '#F6F9FC' }}>
+                    {['#', 'Company', 'Contact', 'Phone', 'Status', 'Notes', ''].map((col) => (
+                      <th key={col} style={{ padding: '12px 16px', textAlign: 'left', fontSize: 12, fontWeight: 600, color: '#8898aa', textTransform: 'uppercase', letterSpacing: 0.5, borderBottom: '1px solid #E3E8EE' }}>
+                        {col}
+                      </th>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody>
+                  {myLeads.map((lead, i) => {
+                    const badge = STATUS_BADGE[lead.status] ?? { bg: '#F6F9FC', color: '#425466' };
+                    return (
+                      <tr
+                        key={lead.id}
+                        style={{ borderBottom: '1px solid #E3E8EE', cursor: 'pointer' }}
+                        onMouseEnter={(e) => (e.currentTarget.style.background = '#F6F9FC')}
+                        onMouseLeave={(e) => (e.currentTarget.style.background = '#fff')}
+                      >
+                        <td style={{ padding: '14px 16px', fontSize: 13, color: '#8898aa', fontWeight: 600 }}>{i + 1}</td>
+                        <td style={{ padding: '14px 16px', fontSize: 14, color: '#0A2540', fontWeight: 600 }}>{lead.company_name}</td>
+                        <td style={{ padding: '14px 16px', fontSize: 13, color: '#425466' }}>
+                          <div>{lead.contact_name || '—'}</div>
+                          {lead.contact_title && <div style={{ fontSize: 12, color: '#8898aa' }}>{lead.contact_title}</div>}
+                        </td>
+                        <td style={{ padding: '14px 16px', fontSize: 13, color: '#425466', whiteSpace: 'nowrap' }}>
+                          {formatPhone(lead.mobile_phone || lead.phone_hq) || '—'}
+                        </td>
+                        <td style={{ padding: '14px 16px' }}>
+                          <span style={{ display: 'inline-flex', alignItems: 'center', padding: '3px 10px', borderRadius: 20, fontSize: 12, fontWeight: 600, background: badge.bg, color: badge.color }}>
+                            {lead.status}
+                          </span>
+                        </td>
+                        <td style={{ padding: '14px 16px', fontSize: 13, color: '#8898aa', maxWidth: 200, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                          {lead.human_notes || '—'}
+                        </td>
+                        <td style={{ padding: '14px 16px' }}>
+                          <button
+                            onClick={() => navigate(`/leads/${lead.id}`)}
+                            style={{ background: 'none', border: '1px solid #E3E8EE', borderRadius: 6, padding: '5px 12px', fontSize: 12, fontWeight: 600, color: '#635BFF', cursor: 'pointer' }}
+                          >
+                            View
+                          </button>
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </>
+      )}
     </div>
   );
 }

@@ -1,188 +1,185 @@
 import { useState, useEffect } from 'react';
-import { Button } from '@/components/ui/button';
-import { Input } from '@/components/ui/input';
-import { Label } from '@/components/ui/label';
-import { Badge } from '@/components/ui/badge';
-import { Card, CardContent } from '@/components/ui/card';
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogClose } from '@/components/ui/dialog';
-import { db, type TeamMember } from '@/lib/db';
-import { AVATAR_COLORS } from '@/lib/constants';
-import { Plus, Pencil, Trash2, Users } from 'lucide-react';
+import { db, type TeamMember } from '../lib/db';
+import { UserPlus, Trash2, Users } from 'lucide-react';
 
-const ROLE_COLORS: Record<string, string> = {
-  admin: 'bg-red-500/20 text-red-300 border-red-500/30',
-  manager: 'bg-blue-500/20 text-blue-300 border-blue-500/30',
-  member: 'bg-gray-500/20 text-gray-300 border-gray-500/30',
-};
+const AVATAR_COLORS = ['#635BFF', '#059669', '#E25950', '#f59e0b', '#3b82f6', '#8b5cf6', '#ec4899', '#06b6d4'];
+
+function Avatar({ name, color }: { name: string; color?: string }) {
+  const initials = name.split(' ').map((w) => w[0]).slice(0, 2).join('').toUpperCase();
+  const bg = color ?? AVATAR_COLORS[name.charCodeAt(0) % AVATAR_COLORS.length];
+  return (
+    <div style={{
+      width: 40, height: 40, borderRadius: '50%', background: bg, color: '#fff',
+      display: 'flex', alignItems: 'center', justifyContent: 'center',
+      fontSize: 15, fontWeight: 700, flexShrink: 0,
+    }}>
+      {initials}
+    </div>
+  );
+}
 
 export default function TeamPage() {
-  const [members, setMembers] = useState<(TeamMember & { assigned_count?: number })[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [dialogOpen, setDialogOpen] = useState(false);
-  const [editingId, setEditingId] = useState<number | null>(null);
-  const [name, setName] = useState('');
-  const [email, setEmail] = useState('');
-  const [role, setRole] = useState('member');
+  const [members, setMembers] = useState<TeamMember[]>([]);
+  const [showAdd, setShowAdd] = useState(false);
+  const [newName, setNewName] = useState('');
+  const [newEmail, setNewEmail] = useState('');
+  const [newRole, setNewRole] = useState('SDR');
   const [saving, setSaving] = useState(false);
 
-  const loadMembers = async () => {
-    const all = await db.team_members.toArray();
-    const withCounts = await Promise.all(all.map(async (m) => {
-      const count = await db.lead_assignments.where('team_member_id').equals(m.id!).count();
-      return { ...m, assigned_count: count };
-    }));
-    setMembers(withCounts);
-    setLoading(false);
-  };
+  useEffect(() => {
+    db.team_members.toArray().then(setMembers);
+  }, []);
 
-  useEffect(() => { loadMembers(); }, []);
-
-  const openAdd = () => {
-    setEditingId(null);
-    setName('');
-    setEmail('');
-    setRole('member');
-    setDialogOpen(true);
-  };
-
-  const openEdit = (m: TeamMember) => {
-    setEditingId(m.id!);
-    setName(m.name);
-    setEmail(m.email ?? '');
-    setRole(m.role);
-    setDialogOpen(true);
-  };
-
-  const handleSave = async () => {
-    if (!name.trim()) return;
+  const handleAdd = async () => {
+    if (!newName.trim()) return;
     setSaving(true);
-    const now = new Date().toISOString();
-    if (editingId) {
-      await db.team_members.update(editingId, { name, email: email || undefined, role });
-    } else {
-      const color = AVATAR_COLORS[Math.floor(Math.random() * AVATAR_COLORS.length)];
-      await db.team_members.add({ name, email: email || undefined, role, avatar_color: color, active: true, created_at: now });
-    }
-    setDialogOpen(false);
+    const id = await db.team_members.add({
+      name: newName.trim(),
+      email: newEmail.trim() || undefined,
+      role: newRole,
+      avatar_color: AVATAR_COLORS[Math.floor(Math.random() * AVATAR_COLORS.length)],
+      active: true,
+      created_at: new Date().toISOString(),
+    });
+    const all = await db.team_members.toArray();
+    setMembers(all);
+    setNewName('');
+    setNewEmail('');
+    setNewRole('SDR');
+    setShowAdd(false);
     setSaving(false);
-    loadMembers();
+  };
+
+  const handleToggleActive = async (member: TeamMember) => {
+    await db.team_members.update(member.id!, { active: !member.active });
+    setMembers((prev) => prev.map((m) => m.id === member.id ? { ...m, active: !m.active } : m));
   };
 
   const handleDelete = async (id: number) => {
-    if (!confirm('Remove this team member? Their lead assignments will be deleted.')) return;
-    await db.lead_assignments.where('team_member_id').equals(id).delete();
+    if (!confirm('Remove this team member?')) return;
     await db.team_members.delete(id);
-    loadMembers();
+    setMembers((prev) => prev.filter((m) => m.id !== id));
   };
 
-  const handleToggleActive = async (m: TeamMember) => {
-    await db.team_members.update(m.id!, { active: !m.active });
-    loadMembers();
-  };
+  const active = members.filter((m) => m.active);
+  const inactive = members.filter((m) => !m.active);
 
   return (
-    <div className="space-y-6 max-w-4xl">
-      <div className="flex items-center justify-between">
+    <div>
+      {/* Header */}
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 24 }}>
         <div>
-          <h1 className="text-xl font-bold tracking-tight" style={{ color: '#f7f8f8' }}>Team</h1>
-          <p className="text-[#95a2b3] mt-1">Manage team members and lead assignments</p>
+          <h1 style={{ fontSize: 24, fontWeight: 700, color: '#0A2540' }}>Team</h1>
+          <p style={{ fontSize: 13, color: '#8898aa', marginTop: 2 }}>Manage your sales team members</p>
         </div>
-        <Button onClick={openAdd}>
-          <Plus className="w-4 h-4 mr-2" />Add Member
-        </Button>
+        <button
+          onClick={() => setShowAdd(true)}
+          style={{ display: 'flex', alignItems: 'center', gap: 8, background: '#635BFF', color: '#fff', border: 'none', padding: '10px 20px', borderRadius: 8, fontSize: 14, fontWeight: 600, cursor: 'pointer' }}
+        >
+          <UserPlus size={16} /> Add Member
+        </button>
       </div>
 
-      {loading ? (
-        <p className="text-[#95a2b3] text-center py-12">Loading...</p>
-      ) : members.length === 0 ? (
-        <Card>
-          <CardContent className="p-12 text-center">
-            <Users className="w-12 h-12 mx-auto mb-4 text-[#95a2b3]/30" />
-            <h3 className="text-lg font-semibold text-[#f7f8f8] mb-2">No team members yet</h3>
-            <p className="text-[#95a2b3] text-sm mb-4">Add team members to start assigning leads.</p>
-            <Button onClick={openAdd}><Plus className="w-4 h-4 mr-2" />Add First Member</Button>
-          </CardContent>
-        </Card>
-      ) : (
-        <div className="grid gap-4">
-          {members.map((member) => (
-            <Card key={member.id}>
-              <CardContent className="p-4">
-                <div className="flex items-center justify-between">
-                  <div className="flex items-center gap-3">
-                    <div className="w-10 h-10 rounded-full flex items-center justify-center text-white font-bold text-sm"
-                      style={{ backgroundColor: member.avatar_color ?? '#6b7280' }}>
-                      {member.name.charAt(0).toUpperCase()}
-                    </div>
-                    <div>
-                      <div className="flex items-center gap-2">
-                        <span className="font-semibold text-[#f7f8f8]">{member.name}</span>
-                        <Badge className={`text-xs border ${ROLE_COLORS[member.role] ?? ROLE_COLORS.member}`}>{member.role}</Badge>
-                        {!member.active && <Badge className="text-xs bg-yellow-500/20 text-yellow-300 border-yellow-500/30">Inactive</Badge>}
-                      </div>
-                      {member.email && <p className="text-sm text-[#95a2b3]">{member.email}</p>}
-                    </div>
-                  </div>
-                  <div className="flex items-center gap-4">
-                    <div className="text-right">
-                      <p className="text-2xl font-bold text-[#f7f8f8]">{member.assigned_count ?? 0}</p>
-                      <p className="text-xs text-[#95a2b3]">assigned leads</p>
-                    </div>
-                    <div className="flex items-center gap-1">
-                      <Button variant="ghost" size="sm" onClick={() => handleToggleActive(member)} className="text-xs">
-                        {member.active ? 'Deactivate' : 'Activate'}
-                      </Button>
-                      <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => openEdit(member)}>
-                        <Pencil className="w-3.5 h-3.5" />
-                      </Button>
-                      <Button variant="ghost" size="icon" className="h-8 w-8 text-red-400 hover:text-red-300"
-                        onClick={() => handleDelete(member.id!)}>
-                        <Trash2 className="w-3.5 h-3.5" />
-                      </Button>
-                    </div>
-                  </div>
-                </div>
-              </CardContent>
-            </Card>
-          ))}
+      {/* Stats */}
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3,1fr)', gap: 16, marginBottom: 24 }}>
+        {[
+          { label: 'Total Members', value: members.length, borderColor: '#635BFF' },
+          { label: 'Active', value: active.length, borderColor: '#059669' },
+          { label: 'Inactive', value: inactive.length, borderColor: '#8898aa' },
+        ].map((stat) => (
+          <div key={stat.label} style={{ background: '#fff', border: '1px solid #E3E8EE', borderLeft: `3px solid ${stat.borderColor}`, borderRadius: 12, padding: '20px 24px', boxShadow: '0 1px 3px rgba(0,0,0,0.04)' }}>
+            <p style={{ fontSize: 12, fontWeight: 600, color: '#8898aa', textTransform: 'uppercase', letterSpacing: 0.5 }}>{stat.label}</p>
+            <p style={{ fontSize: 28, fontWeight: 700, color: '#0A2540', marginTop: 4 }}>{stat.value}</p>
+          </div>
+        ))}
+      </div>
+
+      {/* Add Member Modal */}
+      {showAdd && (
+        <div style={{ position: 'fixed', inset: 0, background: 'rgba(10,37,64,0.3)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 200 }}
+          onClick={(e) => { if (e.target === e.currentTarget) setShowAdd(false); }}
+        >
+          <div style={{ background: '#fff', borderRadius: 16, padding: 32, width: 440, boxShadow: '0 20px 60px rgba(0,0,0,0.15)' }}>
+            <h2 style={{ fontSize: 18, fontWeight: 700, color: '#0A2540', marginBottom: 20 }}>Add Team Member</h2>
+            <div style={{ display: 'grid', gap: 14 }}>
+              <div>
+                <label style={{ display: 'block', fontSize: 12, fontWeight: 600, color: '#8898aa', textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: 4 }}>Name *</label>
+                <input value={newName} onChange={(e) => setNewName(e.target.value)} style={{ width: '100%', padding: '9px 12px', border: '1px solid #E3E8EE', borderRadius: 8, fontSize: 14 }} placeholder="Full name" />
+              </div>
+              <div>
+                <label style={{ display: 'block', fontSize: 12, fontWeight: 600, color: '#8898aa', textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: 4 }}>Email</label>
+                <input value={newEmail} onChange={(e) => setNewEmail(e.target.value)} style={{ width: '100%', padding: '9px 12px', border: '1px solid #E3E8EE', borderRadius: 8, fontSize: 14 }} placeholder="email@company.com" type="email" />
+              </div>
+              <div>
+                <label style={{ display: 'block', fontSize: 12, fontWeight: 600, color: '#8898aa', textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: 4 }}>Role</label>
+                <select value={newRole} onChange={(e) => setNewRole(e.target.value)} style={{ width: '100%', padding: '9px 12px', border: '1px solid #E3E8EE', borderRadius: 8, fontSize: 14, cursor: 'pointer' }}>
+                  {['SDR', 'AE', 'Manager', 'Admin', 'Other'].map((r) => <option key={r} value={r}>{r}</option>)}
+                </select>
+              </div>
+            </div>
+            <div style={{ display: 'flex', gap: 10, marginTop: 24 }}>
+              <button onClick={handleAdd} disabled={saving || !newName.trim()} style={{ flex: 1, background: '#635BFF', color: '#fff', border: 'none', padding: '10px', borderRadius: 8, fontSize: 14, fontWeight: 600, cursor: 'pointer' }}>
+                {saving ? 'Adding...' : 'Add Member'}
+              </button>
+              <button onClick={() => setShowAdd(false)} style={{ flex: 1, background: '#F6F9FC', color: '#425466', border: '1px solid #E3E8EE', padding: '10px', borderRadius: 8, fontSize: 14, fontWeight: 600, cursor: 'pointer' }}>
+                Cancel
+              </button>
+            </div>
+          </div>
         </div>
       )}
 
-      <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle>{editingId ? 'Edit' : 'Add'} Team Member</DialogTitle>
-          </DialogHeader>
-          <div className="space-y-4">
-            <div>
-              <Label htmlFor="name">Name</Label>
-              <Input id="name" value={name} onChange={(e) => setName(e.target.value)} placeholder="Full name" />
+      {/* Members list */}
+      {members.length === 0 ? (
+        <div style={{ background: '#fff', border: '1px solid #E3E8EE', borderRadius: 12, padding: 60, textAlign: 'center', boxShadow: '0 1px 3px rgba(0,0,0,0.04)' }}>
+          <Users size={36} style={{ color: '#8898aa', marginBottom: 12 }} />
+          <p style={{ fontSize: 15, fontWeight: 600, color: '#425466' }}>No team members yet</p>
+          <p style={{ fontSize: 13, color: '#8898aa', marginTop: 4 }}>Add your first team member to get started.</p>
+        </div>
+      ) : (
+        <div style={{ background: '#fff', border: '1px solid #E3E8EE', borderRadius: 12, overflow: 'hidden', boxShadow: '0 1px 3px rgba(0,0,0,0.04)' }}>
+          {members.map((member, i) => (
+            <div
+              key={member.id}
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                gap: 16,
+                padding: '16px 20px',
+                borderBottom: i < members.length - 1 ? '1px solid #E3E8EE' : 'none',
+                opacity: member.active ? 1 : 0.5,
+              }}
+            >
+              <Avatar name={member.name} color={member.avatar_color} />
+              <div style={{ flex: 1 }}>
+                <p style={{ fontSize: 14, fontWeight: 600, color: '#0A2540' }}>{member.name}</p>
+                <p style={{ fontSize: 12, color: '#8898aa', marginTop: 1 }}>
+                  {member.role}{member.email ? ` · ${member.email}` : ''}
+                </p>
+              </div>
+              <span style={{
+                fontSize: 11, fontWeight: 600, padding: '3px 10px', borderRadius: 12,
+                background: member.active ? '#ECFDF5' : '#F6F9FC',
+                color: member.active ? '#059669' : '#8898aa',
+              }}>
+                {member.active ? 'Active' : 'Inactive'}
+              </span>
+              <button
+                onClick={() => handleToggleActive(member)}
+                style={{ background: 'none', border: '1px solid #E3E8EE', borderRadius: 6, padding: '5px 12px', fontSize: 12, color: '#425466', cursor: 'pointer' }}
+              >
+                {member.active ? 'Deactivate' : 'Activate'}
+              </button>
+              <button
+                onClick={() => handleDelete(member.id!)}
+                style={{ background: 'none', border: 'none', padding: 6, cursor: 'pointer', color: '#E25950' }}
+              >
+                <Trash2 size={16} />
+              </button>
             </div>
-            <div>
-              <Label htmlFor="email">Email (optional)</Label>
-              <Input id="email" type="email" value={email} onChange={(e) => setEmail(e.target.value)} placeholder="email@company.com" />
-            </div>
-            <div>
-              <Label>Role</Label>
-              <Select value={role} onValueChange={setRole}>
-                <SelectTrigger><SelectValue /></SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="admin">Admin</SelectItem>
-                  <SelectItem value="manager">Manager</SelectItem>
-                  <SelectItem value="member">Member</SelectItem>
-                </SelectContent>
-              </Select>
-            </div>
-          </div>
-          <DialogFooter>
-            <DialogClose asChild><Button variant="outline">Cancel</Button></DialogClose>
-            <Button onClick={handleSave} disabled={!name.trim() || saving}>
-              {saving ? 'Saving...' : editingId ? 'Update' : 'Add Member'}
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
+          ))}
+        </div>
+      )}
     </div>
   );
 }

@@ -1,271 +1,222 @@
 import { useState, useRef } from 'react';
-import { Button } from '@/components/ui/button';
-import { Card, CardContent } from '@/components/ui/card';
-import { Input } from '@/components/ui/input';
-import {
-  Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
-} from '@/components/ui/select';
-import { db, type Lead } from '@/lib/db';
-import { Upload, Download, FileSpreadsheet, AlertCircle, CheckCircle2, X } from 'lucide-react';
-import * as XLSX from 'xlsx';
+import { db, type Lead } from '../lib/db';
+import { Upload, Download, FileText, CheckCircle, AlertCircle } from 'lucide-react';
 
-const LEAD_FIELD_OPTIONS = [
-  { value: '__skip__', label: '-- Skip --' },
-  { value: 'company_name', label: 'Company Name' },
-  { value: 'website', label: 'Website' },
-  { value: 'contact_name', label: 'Contact Name' },
-  { value: 'contact_title', label: 'Contact Title' },
-  { value: 'email', label: 'Email' },
-  { value: 'mobile_phone', label: 'Mobile Phone' },
-  { value: 'phone_hq', label: 'Phone HQ' },
-  { value: 'city', label: 'City' },
-  { value: 'state', label: 'State' },
-  { value: 'industry', label: 'Industry' },
-  { value: 'quality_score', label: 'Quality Score' },
-  { value: 'status', label: 'Status' },
-  { value: 'source', label: 'Source' },
-  { value: 'employee_count', label: 'Employees' },
-  { value: 'founded_year', label: 'Founded Year' },
-  { value: 'linkedin_url', label: 'LinkedIn URL' },
-  { value: 'hiring_signals', label: 'Hiring Signals' },
-  { value: 'specialization', label: 'Specialization' },
-  { value: 'estimated_size', label: 'Estimated Size' },
-  { value: 'human_notes', label: 'Notes' },
-];
+type ImportResult = { added: number; skipped: number; errors: string[] };
 
-// Auto-detect column mapping
-function autoMap(header: string): string {
-  const h = header.toLowerCase().trim();
-  const map: Record<string, string> = {
-    'company name': 'company_name', 'company': 'company_name', 'name': 'company_name',
-    'website': 'website', 'url': 'website', 'domain': 'website',
-    'contact name': 'contact_name', 'contact': 'contact_name',
-    'contact title': 'contact_title', 'title': 'contact_title', 'job title': 'contact_title',
-    'email': 'email', 'email address': 'email',
-    'phone': 'mobile_phone', 'mobile': 'mobile_phone', 'mobile phone': 'mobile_phone', 'direct phone': 'mobile_phone',
-    'phone hq': 'phone_hq', 'company phone': 'phone_hq',
-    'city': 'city', 'state': 'state', 'location': 'city',
-    'industry': 'industry', 'vertical': 'industry', 'industry/vertical': 'industry',
-    'score': 'quality_score', 'quality score': 'quality_score', 'blueprint score': 'quality_score',
-    'status': 'status',
-    'source': 'source',
-    'employees': 'employee_count', 'employee count': 'employee_count', 'number of employees': 'employee_count',
-    'founded': 'founded_year', 'founded year': 'founded_year',
-    'linkedin': 'linkedin_url', 'linkedin url': 'linkedin_url', 'company linkedin': 'linkedin_url',
-    'hiring signals': 'hiring_signals',
-    'specialization': 'specialization',
-    'notes': 'human_notes',
-  };
-  return map[h] ?? '__skip__';
+function parseCSV(text: string): Record<string, string>[] {
+  const lines = text.trim().split('\n');
+  if (lines.length < 2) return [];
+  const headers = lines[0].split(',').map((h) => h.trim().replace(/^"|"$/g, '').toLowerCase().replace(/\s+/g, '_'));
+  return lines.slice(1).map((line) => {
+    const vals = line.match(/(".*?"|[^,]+|(?<=,)(?=,)|(?<=,)$|^(?=,))/g) ?? [];
+    const row: Record<string, string> = {};
+    headers.forEach((h, i) => {
+      row[h] = (vals[i] ?? '').replace(/^"|"$/g, '').trim();
+    });
+    return row;
+  });
 }
 
 export default function ImportExportPage() {
+  const [importing, setImporting] = useState(false);
+  const [result, setResult] = useState<ImportResult | null>(null);
+  const [exportMsg, setExportMsg] = useState('');
   const fileRef = useRef<HTMLInputElement>(null);
-  const [step, setStep] = useState<'idle' | 'mapping' | 'importing' | 'done'>('idle');
-  const [headers, setHeaders] = useState<string[]>([]);
-  const [mapping, setMapping] = useState<Record<number, string>>({});
-  const [rawRows, setRawRows] = useState<Record<string, unknown>[]>([]);
-  const [importCount, setImportCount] = useState(0);
-  const [error, setError] = useState('');
 
-  const handleFile = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
-    setError('');
-    const reader = new FileReader();
-    reader.onload = (ev) => {
-      try {
-        const data = new Uint8Array(ev.target?.result as ArrayBuffer);
-        const wb = XLSX.read(data, { type: 'array' });
-        const ws = wb.Sheets[wb.SheetNames[0]];
-        const json = XLSX.utils.sheet_to_json<Record<string, unknown>>(ws);
-        if (json.length === 0) { setError('File is empty'); return; }
-        const hdrs = Object.keys(json[0]);
-        setHeaders(hdrs);
-        const autoMapping: Record<number, string> = {};
-        hdrs.forEach((h, i) => { autoMapping[i] = autoMap(h); });
-        setMapping(autoMapping);
-        setRawRows(json);
-        setStep('mapping');
-      } catch {
-        setError('Failed to parse file. Ensure it is a valid XLSX or CSV.');
-      }
-    };
-    reader.readAsArrayBuffer(file);
-  };
+  const handleImport = async (file: File) => {
+    setImporting(true);
+    setResult(null);
+    try {
+      const text = await file.text();
+      const rows = parseCSV(text);
+      let added = 0;
+      let skipped = 0;
+      const errors: string[] = [];
 
-  const doImport = async () => {
-    setStep('importing');
-    const now = new Date().toISOString();
-    let count = 0;
-    const batch: Lead[] = [];
-
-    for (const row of rawRows) {
-      const lead: Partial<Lead> = { status: 'New', created_at: now, updated_at: now };
-      for (const [colIdx, field] of Object.entries(mapping)) {
-        if (field === '__skip__') continue;
-        const header = headers[Number(colIdx)];
-        const val = row[header];
-        if (val === null || val === undefined || val === '') continue;
-        if (field === 'quality_score' || field === 'founded_year') {
-          (lead as unknown as Record<string, unknown>)[field] = Number(val) || 0;
-        } else {
-          (lead as unknown as Record<string, unknown>)[field] = String(val);
+      for (const row of rows) {
+        const companyName = row['company_name'] || row['company'] || row['name'];
+        if (!companyName) { skipped++; continue; }
+        try {
+          const existing = await db.leads.where('company_name').equalsIgnoreCase(companyName).first();
+          if (existing) { skipped++; continue; }
+          const now = new Date().toISOString();
+          await db.leads.add({
+            company_name: companyName,
+            website: row['website'] || row['domain'] || undefined,
+            domain: row['domain'] || undefined,
+            contact_name: row['contact_name'] || row['contact'] || row['first_name'] ? `${row['first_name'] ?? ''} ${row['last_name'] ?? ''}`.trim() || undefined : undefined,
+            contact_title: row['contact_title'] || row['title'] || undefined,
+            mobile_phone: row['mobile_phone'] || row['phone'] || row['mobile'] || undefined,
+            phone_hq: row['phone_hq'] || row['hq_phone'] || undefined,
+            email: row['email'] || undefined,
+            city: row['city'] || undefined,
+            state: row['state'] || undefined,
+            industry: row['industry'] || undefined,
+            status: row['status'] || 'New',
+            human_notes: row['notes'] || row['human_notes'] || undefined,
+            created_at: now,
+            updated_at: now,
+          });
+          added++;
+        } catch (err) {
+          errors.push(`${companyName}: ${String(err)}`);
         }
       }
-      if (lead.company_name) {
-        lead.domain = lead.website ? lead.website.replace(/^https?:\/\//, '').replace(/\/.*$/, '') : undefined;
-        batch.push(lead as Lead);
-        count++;
-      }
+      setResult({ added, skipped, errors });
+    } catch (err) {
+      setResult({ added: 0, skipped: 0, errors: [String(err)] });
     }
-
-    if (batch.length > 0) {
-      // Insert in chunks of 500
-      for (let i = 0; i < batch.length; i += 500) {
-        await db.leads.bulkAdd(batch.slice(i, i + 500));
-      }
-    }
-    setImportCount(count);
-    setStep('done');
+    setImporting(false);
   };
 
-  const exportCSV = async () => {
+  const handleExport = async () => {
     const leads = await db.leads.toArray();
-    const cols = ['company_name', 'website', 'contact_name', 'contact_title', 'email', 'mobile_phone', 'city', 'state', 'industry', 'quality_score', 'status', 'employee_count', 'source'];
-    const header = cols.join(',');
+    if (leads.length === 0) { setExportMsg('No leads to export.'); return; }
+    const headers = ['id', 'company_name', 'website', 'contact_name', 'contact_title', 'mobile_phone', 'phone_hq', 'email', 'city', 'state', 'industry', 'status', 'quality_score', 'human_notes', 'created_at'];
     const rows = leads.map((l) =>
-      cols.map((c) => {
-        const v = (l as Record<string, unknown>)[c];
-        if (v === null || v === undefined) return '';
-        return `"${String(v).replace(/"/g, '""')}"`;
+      headers.map((h) => {
+        const val = (l as Record<string, unknown>)[h];
+        if (val == null) return '';
+        const s = String(val);
+        return s.includes(',') || s.includes('"') || s.includes('\n') ? `"${s.replace(/"/g, '""')}"` : s;
       }).join(',')
     );
-    const csv = [header, ...rows].join('\n');
+    const csv = [headers.join(','), ...rows].join('\n');
     const blob = new Blob([csv], { type: 'text/csv' });
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
-    a.download = `corgi-leads-${new Date().toISOString().split('T')[0]}.csv`;
+    a.download = `corgi-leads-${new Date().toISOString().slice(0, 10)}.csv`;
     a.click();
     URL.revokeObjectURL(url);
-  };
-
-  const reset = () => {
-    setStep('idle');
-    setHeaders([]);
-    setMapping({});
-    setRawRows([]);
-    setImportCount(0);
-    setError('');
-    if (fileRef.current) fileRef.current.value = '';
+    setExportMsg(`Exported ${leads.length} leads.`);
+    setTimeout(() => setExportMsg(''), 3000);
   };
 
   return (
-    <div className="space-y-6">
-      <div>
-        <h1 className="text-xl font-bold tracking-tight" style={{ color: '#f7f8f8' }}>Import & Export</h1>
-        <p className="text-[#95a2b3] mt-1">Import leads from XLSX/CSV or export your data</p>
+    <div>
+      {/* Header */}
+      <div style={{ marginBottom: 24 }}>
+        <h1 style={{ fontSize: 24, fontWeight: 700, color: '#0A2540' }}>Import & Export</h1>
+        <p style={{ fontSize: 13, color: '#8898aa', marginTop: 2 }}>Bulk import leads from CSV or export your database</p>
       </div>
 
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-        {/* Import */}
-        <Card className="bg-[#0f0f14] border-[#1f1f2e]">
-          <CardContent className="p-6">
-            <div className="flex items-center gap-3 mb-4">
-              <div className="w-10 h-10 rounded-lg bg-[#6C63FF]/20 flex items-center justify-center">
-                <Upload className="w-5 h-5 text-[#6C63FF]" />
-              </div>
-              <div>
-                <h2 className="text-lg font-semibold">Import Leads</h2>
-                <p className="text-xs text-[#95a2b3]">Upload XLSX or CSV files</p>
-              </div>
+      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 20 }}>
+        {/* Import Card */}
+        <div style={{ background: '#fff', border: '1px solid #E3E8EE', borderRadius: 12, padding: 28, boxShadow: '0 1px 3px rgba(0,0,0,0.04)' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 16 }}>
+            <div style={{ width: 40, height: 40, borderRadius: 10, background: 'rgba(99,91,255,0.1)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+              <Upload size={20} style={{ color: '#635BFF' }} />
             </div>
+            <div>
+              <h2 style={{ fontSize: 16, fontWeight: 700, color: '#0A2540' }}>Import CSV</h2>
+              <p style={{ fontSize: 13, color: '#8898aa' }}>Upload a CSV file with lead data</p>
+            </div>
+          </div>
 
-            {step === 'idle' && (
-              <div>
-                <Input ref={fileRef} type="file" accept=".xlsx,.xls,.csv" onChange={handleFile} className="mb-3" />
-                {error && (
-                  <div className="flex items-center gap-2 text-red-400 text-sm mt-2">
-                    <AlertCircle className="w-4 h-4" />
-                    {error}
-                  </div>
-                )}
-              </div>
-            )}
+          {/* Drop zone */}
+          <div
+            style={{ border: '2px dashed #E3E8EE', borderRadius: 10, padding: 32, textAlign: 'center', cursor: 'pointer', background: '#F6F9FC', marginBottom: 16 }}
+            onClick={() => fileRef.current?.click()}
+            onDragOver={(e) => e.preventDefault()}
+            onDrop={(e) => {
+              e.preventDefault();
+              const file = e.dataTransfer.files[0];
+              if (file) handleImport(file);
+            }}
+          >
+            <FileText size={28} style={{ color: '#8898aa', marginBottom: 8 }} />
+            <p style={{ fontSize: 14, fontWeight: 600, color: '#425466' }}>
+              {importing ? 'Importing...' : 'Drop CSV here or click to browse'}
+            </p>
+            <p style={{ fontSize: 12, color: '#8898aa', marginTop: 4 }}>Supports: company_name, website, contact_name, email, phone, city, state, industry, status</p>
+          </div>
+          <input ref={fileRef} type="file" accept=".csv" style={{ display: 'none' }} onChange={(e) => e.target.files?.[0] && handleImport(e.target.files[0])} />
 
-            {step === 'mapping' && (
-              <div className="space-y-3">
-                <p className="text-sm text-[#95a2b3]">
-                  Map columns from your file ({rawRows.length.toLocaleString()} rows detected):
+          <button
+            onClick={() => fileRef.current?.click()}
+            disabled={importing}
+            style={{ width: '100%', background: '#635BFF', color: '#fff', border: 'none', padding: '10px', borderRadius: 8, fontSize: 14, fontWeight: 600, cursor: 'pointer' }}
+          >
+            {importing ? 'Importing...' : 'Choose File'}
+          </button>
+
+          {result && (
+            <div style={{ marginTop: 16, padding: 16, borderRadius: 8, background: result.errors.length > 0 ? '#FFF1F0' : '#F0FFF4', border: `1px solid ${result.errors.length > 0 ? '#fecaca' : '#bbf7d0'}` }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 }}>
+                {result.errors.length === 0
+                  ? <CheckCircle size={16} style={{ color: '#059669' }} />
+                  : <AlertCircle size={16} style={{ color: '#E25950' }} />
+                }
+                <p style={{ fontSize: 14, fontWeight: 700, color: result.errors.length === 0 ? '#059669' : '#E25950' }}>
+                  Import Complete
                 </p>
-                <div className="max-h-80 overflow-y-auto space-y-2 pr-2">
-                  {headers.map((h, i) => (
-                    <div key={i} className="flex items-center gap-3">
-                      <span className="text-sm text-[#f7f8f8] w-40 truncate shrink-0" title={h}>{h}</span>
-                      <span className="text-[#5c6370]">→</span>
-                      <Select value={mapping[i] ?? '__skip__'} onValueChange={(v) => setMapping((m) => ({ ...m, [i]: v }))}>
-                        <SelectTrigger className="w-48">
-                          <SelectValue />
-                        </SelectTrigger>
-                        <SelectContent>
-                          {LEAD_FIELD_OPTIONS.map((o) => (
-                            <SelectItem key={o.value} value={o.value}>{o.label}</SelectItem>
-                          ))}
-                        </SelectContent>
-                      </Select>
-                    </div>
+              </div>
+              <p style={{ fontSize: 13, color: '#425466' }}>✅ Added: {result.added}</p>
+              <p style={{ fontSize: 13, color: '#425466' }}>⏭ Skipped: {result.skipped}</p>
+              {result.errors.length > 0 && (
+                <div style={{ marginTop: 8 }}>
+                  <p style={{ fontSize: 12, fontWeight: 600, color: '#E25950', marginBottom: 4 }}>Errors ({result.errors.length}):</p>
+                  {result.errors.slice(0, 5).map((e, i) => (
+                    <p key={i} style={{ fontSize: 11, color: '#8898aa' }}>{e}</p>
                   ))}
                 </div>
-                <div className="flex gap-2 pt-2">
-                  <Button onClick={doImport}>
-                    <FileSpreadsheet className="w-4 h-4 mr-2" />
-                    Import {rawRows.length.toLocaleString()} rows
-                  </Button>
-                  <Button variant="outline" onClick={reset}>
-                    <X className="w-4 h-4 mr-1" />Cancel
-                  </Button>
-                </div>
-              </div>
-            )}
-
-            {step === 'importing' && (
-              <div className="flex items-center gap-3 text-[#95a2b3]">
-                <div className="w-5 h-5 border-2 border-[#6C63FF] border-t-transparent rounded-full animate-spin" />
-                Importing leads...
-              </div>
-            )}
-
-            {step === 'done' && (
-              <div className="space-y-3">
-                <div className="flex items-center gap-2 text-green-400">
-                  <CheckCircle2 className="w-5 h-5" />
-                  <span className="font-medium">Imported {importCount.toLocaleString()} leads</span>
-                </div>
-                <Button variant="outline" size="sm" onClick={reset}>Import more</Button>
-              </div>
-            )}
-          </CardContent>
-        </Card>
-
-        {/* Export */}
-        <Card className="bg-[#0f0f14] border-[#1f1f2e]">
-          <CardContent className="p-6">
-            <div className="flex items-center gap-3 mb-4">
-              <div className="w-10 h-10 rounded-lg bg-[#00D4AA]/20 flex items-center justify-center">
-                <Download className="w-5 h-5 text-[#00D4AA]" />
-              </div>
-              <div>
-                <h2 className="text-lg font-semibold">Export Leads</h2>
-                <p className="text-xs text-[#95a2b3]">Download all leads as CSV</p>
-              </div>
+              )}
             </div>
-            <Button onClick={exportCSV} variant="outline">
-              <Download className="w-4 h-4 mr-2" />
-              Export all leads to CSV
-            </Button>
-          </CardContent>
-        </Card>
+          )}
+        </div>
+
+        {/* Export Card */}
+        <div style={{ background: '#fff', border: '1px solid #E3E8EE', borderRadius: 12, padding: 28, boxShadow: '0 1px 3px rgba(0,0,0,0.04)' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 16 }}>
+            <div style={{ width: 40, height: 40, borderRadius: 10, background: 'rgba(5,150,105,0.1)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+              <Download size={20} style={{ color: '#059669' }} />
+            </div>
+            <div>
+              <h2 style={{ fontSize: 16, fontWeight: 700, color: '#0A2540' }}>Export CSV</h2>
+              <p style={{ fontSize: 13, color: '#8898aa' }}>Download all leads as a CSV file</p>
+            </div>
+          </div>
+
+          <div style={{ padding: '20px 0', borderTop: '1px solid #F6F9FC', borderBottom: '1px solid #F6F9FC', marginBottom: 20 }}>
+            {[
+              'All lead fields (company, contact, phone, email)',
+              'Location data (city, state)',
+              'Status and quality scores',
+              'Your notes and enrichment data',
+            ].map((item, i) => (
+              <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '6px 0' }}>
+                <CheckCircle size={14} style={{ color: '#059669', flexShrink: 0 }} />
+                <span style={{ fontSize: 13, color: '#425466' }}>{item}</span>
+              </div>
+            ))}
+          </div>
+
+          <button
+            onClick={handleExport}
+            style={{ width: '100%', background: '#059669', color: '#fff', border: 'none', padding: '10px', borderRadius: 8, fontSize: 14, fontWeight: 600, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8 }}
+          >
+            <Download size={16} /> Export All Leads
+          </button>
+
+          {exportMsg && (
+            <div style={{ marginTop: 12, padding: '10px 14px', background: '#F0FFF4', border: '1px solid #bbf7d0', borderRadius: 8, fontSize: 13, color: '#059669', fontWeight: 600, textAlign: 'center' }}>
+              {exportMsg}
+            </div>
+          )}
+        </div>
+      </div>
+
+      {/* CSV Format Guide */}
+      <div style={{ background: '#fff', border: '1px solid #E3E8EE', borderRadius: 12, padding: 24, marginTop: 20, boxShadow: '0 1px 3px rgba(0,0,0,0.04)' }}>
+        <h3 style={{ fontSize: 14, fontWeight: 700, color: '#0A2540', marginBottom: 12 }}>CSV Format Guide</h3>
+        <div style={{ background: '#F6F9FC', borderRadius: 8, padding: '14px 16px', fontFamily: 'monospace', fontSize: 12, color: '#425466', overflowX: 'auto', whiteSpace: 'nowrap' }}>
+          company_name,website,contact_name,contact_title,email,mobile_phone,city,state,industry,status
+        </div>
+        <p style={{ fontSize: 12, color: '#8898aa', marginTop: 10 }}>
+          Only <strong>company_name</strong> is required. Duplicate companies (by name) are skipped automatically.
+        </p>
       </div>
     </div>
   );

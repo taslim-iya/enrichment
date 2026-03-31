@@ -1,163 +1,130 @@
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
-import { Badge } from '@/components/ui/badge';
-import { Button } from '@/components/ui/button';
-import { Input } from '@/components/ui/input';
-import { Label } from '@/components/ui/label';
-import { Separator } from '@/components/ui/separator';
-import { useSettingsStore } from '@/lib/store';
-import { Zap, Globe, Search, Phone, Link2, Database, AlertCircle } from 'lucide-react';
-
-const SOURCES = [
-  {
-    id: 'apollo',
-    name: 'Apollo.io',
-    description: 'Contact discovery, email finding, company enrichment',
-    icon: Database,
-    status: 'configured_externally',
-    fields: ['company_name', 'contact_name', 'email', 'phone', 'employee_count'],
-  },
-  {
-    id: 'company-website',
-    name: 'Company Website',
-    description: 'Scrapes the company website for contact info and description',
-    icon: Globe,
-    status: 'active',
-    fields: ['description', 'phone_hq', 'email', 'linkedin_url'],
-  },
-  {
-    id: 'web-search',
-    name: 'Web Search',
-    description: 'Searches the web for recent news and company information',
-    icon: Search,
-    status: 'active',
-    fields: ['recent_news', 'hiring_signals', 'description'],
-  },
-  {
-    id: 'phone-validation',
-    name: 'Phone Validation',
-    description: 'Validates and formats phone numbers',
-    icon: Phone,
-    status: 'active',
-    fields: ['mobile_phone', 'phone_hq'],
-  },
-  {
-    id: 'linkedin',
-    name: 'LinkedIn',
-    description: 'LinkedIn company and contact data (requires manual auth)',
-    icon: Link2,
-    status: 'manual',
-    fields: ['linkedin_url', 'employee_count', 'founded_year', 'description'],
-  },
-];
+import { useState, useEffect } from 'react';
+import { db, type Lead } from '../lib/db';
+import { BarChart2 } from 'lucide-react';
 
 export default function SourcesPage() {
-  const { apiKeys, setApiKeys } = useSettingsStore();
+  const [leads, setLeads] = useState<Lead[]>([]);
+
+  useEffect(() => {
+    db.leads.toArray().then(setLeads);
+  }, []);
+
+  // Group leads by source
+  const sourceCounts: Record<string, number> = {};
+  for (const lead of leads) {
+    const src = lead.source || 'Unknown';
+    sourceCounts[src] = (sourceCounts[src] ?? 0) + 1;
+  }
+  const sources = Object.entries(sourceCounts).sort((a, b) => b[1] - a[1]);
+  const maxCount = Math.max(...sources.map(([, c]) => c), 1);
+
+  // Group leads by state
+  const stateCounts: Record<string, number> = {};
+  for (const lead of leads) {
+    const st = lead.state || 'Unknown';
+    stateCounts[st] = (stateCounts[st] ?? 0) + 1;
+  }
+  const states = Object.entries(stateCounts).sort((a, b) => b[1] - a[1]).slice(0, 10);
+
+  // Group by industry
+  const industryCounts: Record<string, number> = {};
+  for (const lead of leads) {
+    const ind = lead.industry || 'Other';
+    industryCounts[ind] = (industryCounts[ind] ?? 0) + 1;
+  }
+  const industries = Object.entries(industryCounts).sort((a, b) => b[1] - a[1]).slice(0, 8);
 
   return (
-    <div className="space-y-6 max-w-4xl">
-      <div>
-        <h1 className="text-xl font-bold tracking-tight" style={{ color: '#f7f8f8' }}>Enrichment Engine</h1>
-        <p className="text-[#95a2b3] mt-1">Configure enrichment sources and API keys</p>
+    <div>
+      {/* Header */}
+      <div style={{ marginBottom: 24 }}>
+        <h1 style={{ fontSize: 24, fontWeight: 700, color: '#0A2540' }}>Sources</h1>
+        <p style={{ fontSize: 13, color: '#8898aa', marginTop: 2 }}>Analyze where your leads come from</p>
       </div>
 
-      {/* API Keys */}
-      <Card>
-        <CardHeader className="pb-3">
-          <CardTitle className="text-base flex items-center gap-2">
-            <Zap className="w-4 h-4" />
-            API Keys
-          </CardTitle>
-        </CardHeader>
-        <CardContent className="space-y-4">
-          <div className="rounded-lg border border-yellow-500/30 bg-yellow-500/10 p-3 flex items-start gap-2">
-            <AlertCircle className="w-4 h-4 text-yellow-400 shrink-0 mt-0.5" />
-            <p className="text-xs text-yellow-300">
-              This is a client-side app. API keys are stored in your browser's localStorage (encrypted via Zustand persist).
-              Never use production keys in shared environments.
-            </p>
+      {/* Stats Row */}
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3,1fr)', gap: 16, marginBottom: 24 }}>
+        {[
+          { label: 'Total Leads', value: leads.length, borderColor: '#635BFF' },
+          { label: 'Unique Sources', value: sources.length, borderColor: '#059669' },
+          { label: 'States Covered', value: Object.keys(stateCounts).filter(s => s !== 'Unknown').length, borderColor: '#3b82f6' },
+        ].map((stat) => (
+          <div key={stat.label} style={{ background: '#fff', border: '1px solid #E3E8EE', borderLeft: `3px solid ${stat.borderColor}`, borderRadius: 12, padding: '20px 24px', boxShadow: '0 1px 3px rgba(0,0,0,0.04)' }}>
+            <p style={{ fontSize: 12, fontWeight: 600, color: '#8898aa', textTransform: 'uppercase', letterSpacing: 0.5 }}>{stat.label}</p>
+            <p style={{ fontSize: 28, fontWeight: 700, color: '#0A2540', marginTop: 4 }}>{stat.value}</p>
           </div>
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            <div>
-              <Label>Anthropic API Key</Label>
-              <Input
-                type="password"
-                value={apiKeys.anthropic}
-                onChange={(e) => setApiKeys({ anthropic: e.target.value })}
-                placeholder="sk-ant-..."
-              />
-              <p className="text-xs text-[#95a2b3] mt-1">Used for Jarvis AI and AI filter features</p>
-            </div>
-            <div>
-              <Label>OpenAI API Key</Label>
-              <Input
-                type="password"
-                value={apiKeys.openai}
-                onChange={(e) => setApiKeys({ openai: e.target.value })}
-                placeholder="sk-..."
-              />
-              <p className="text-xs text-[#95a2b3] mt-1">Alternative AI provider</p>
-            </div>
-          </div>
-          <Button size="sm" onClick={() => alert('Keys saved to localStorage via Zustand.')}>Save Keys</Button>
-        </CardContent>
-      </Card>
+        ))}
+      </div>
 
-      {/* Sources */}
-      <div>
-        <h2 className="text-xl font-semibold text-[#f7f8f8] mb-4">Data Sources</h2>
-        <div className="space-y-4">
-          {SOURCES.map((source) => {
-            const Icon = source.icon;
-            const statusColor = source.status === 'active'
-              ? 'bg-green-500/20 text-green-300 border-green-500/30'
-              : source.status === 'manual'
-              ? 'bg-yellow-500/20 text-yellow-300 border-yellow-500/30'
-              : 'bg-blue-500/20 text-blue-300 border-blue-500/30';
-            const statusLabel = source.status === 'active' ? 'Active'
-              : source.status === 'manual' ? 'Manual'
-              : 'External Config';
-
-            return (
-              <Card key={source.id}>
-                <CardContent className="p-4">
-                  <div className="flex items-start justify-between">
-                    <div className="flex items-start gap-3">
-                      <div className="p-2 rounded-lg bg-[#6C63FF]/10">
-                        <Icon className="w-5 h-5 text-[#6C63FF]" />
-                      </div>
-                      <div>
-                        <div className="flex items-center gap-2">
-                          <span className="font-semibold text-[#f7f8f8]">{source.name}</span>
-                          <Badge className={`text-xs border ${statusColor}`}>{statusLabel}</Badge>
-                        </div>
-                        <p className="text-sm text-[#95a2b3] mt-0.5">{source.description}</p>
-                        <div className="flex flex-wrap gap-1.5 mt-2">
-                          {source.fields.map((f) => (
-                            <span key={f} className="text-[10px] bg-[#1a1a24] text-[#95a2b3] px-1.5 py-0.5 rounded font-mono">{f}</span>
-                          ))}
-                        </div>
-                      </div>
-                    </div>
+      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 20, marginBottom: 20 }}>
+        {/* Lead Sources */}
+        <div style={{ background: '#fff', border: '1px solid #E3E8EE', borderRadius: 12, padding: 24, boxShadow: '0 1px 3px rgba(0,0,0,0.04)' }}>
+          <h2 style={{ fontSize: 16, fontWeight: 700, color: '#0A2540', marginBottom: 20 }}>By Source</h2>
+          {sources.length === 0 ? (
+            <div style={{ textAlign: 'center', padding: '40px 0', color: '#8898aa' }}>
+              <BarChart2 size={28} style={{ marginBottom: 8 }} />
+              <p style={{ fontSize: 14 }}>No source data yet</p>
+            </div>
+          ) : (
+            <div style={{ display: 'grid', gap: 12 }}>
+              {sources.map(([src, count]) => (
+                <div key={src}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 5 }}>
+                    <span style={{ fontSize: 13, fontWeight: 600, color: '#0A2540' }}>{src}</span>
+                    <span style={{ fontSize: 13, color: '#8898aa' }}>{count} ({Math.round(count / leads.length * 100)}%)</span>
                   </div>
-                </CardContent>
-              </Card>
-            );
-          })}
+                  <div style={{ height: 6, background: '#E3E8EE', borderRadius: 3 }}>
+                    <div style={{ height: '100%', width: `${(count / maxCount) * 100}%`, background: '#635BFF', borderRadius: 3 }} />
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+
+        {/* By State */}
+        <div style={{ background: '#fff', border: '1px solid #E3E8EE', borderRadius: 12, padding: 24, boxShadow: '0 1px 3px rgba(0,0,0,0.04)' }}>
+          <h2 style={{ fontSize: 16, fontWeight: 700, color: '#0A2540', marginBottom: 20 }}>Top States</h2>
+          {states.length === 0 ? (
+            <div style={{ textAlign: 'center', padding: '40px 0', color: '#8898aa' }}>
+              <p style={{ fontSize: 14 }}>No location data yet</p>
+            </div>
+          ) : (
+            <div style={{ display: 'grid', gap: 10 }}>
+              {states.map(([state, count], i) => (
+                <div key={state} style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+                  <span style={{ fontSize: 12, fontWeight: 700, color: '#8898aa', width: 20, textAlign: 'right' }}>{i + 1}</span>
+                  <span style={{ fontSize: 13, fontWeight: 600, color: '#0A2540', width: 40 }}>{state}</span>
+                  <div style={{ flex: 1, height: 6, background: '#E3E8EE', borderRadius: 3 }}>
+                    <div style={{ height: '100%', width: `${(count / states[0][1]) * 100}%`, background: '#3b82f6', borderRadius: 3 }} />
+                  </div>
+                  <span style={{ fontSize: 12, color: '#8898aa', width: 30, textAlign: 'right' }}>{count}</span>
+                </div>
+              ))}
+            </div>
+          )}
         </div>
       </div>
 
-      <Separator />
-
-      <Card>
-        <CardContent className="p-6">
-          <h3 className="font-semibold text-[#f7f8f8] mb-2">About Client-Side Enrichment</h3>
-          <p className="text-sm text-[#95a2b3]">
-            This v2 app is fully client-side. Enrichment that requires server-side APIs (Apollo, LinkedIn scraping, etc.)
-            must be done through the original backend or by importing pre-enriched CSV/XLSX files via the Import & Export page.
-            The Jarvis AI feature works directly in your browser using the Anthropic API key you configure above.
-          </p>
-        </CardContent>
-      </Card>
+      {/* By Industry */}
+      <div style={{ background: '#fff', border: '1px solid #E3E8EE', borderRadius: 12, padding: 24, boxShadow: '0 1px 3px rgba(0,0,0,0.04)' }}>
+        <h2 style={{ fontSize: 16, fontWeight: 700, color: '#0A2540', marginBottom: 20 }}>By Industry</h2>
+        {industries.length === 0 ? (
+          <div style={{ textAlign: 'center', padding: '30px 0', color: '#8898aa' }}>
+            <p style={{ fontSize: 14 }}>No industry data yet</p>
+          </div>
+        ) : (
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4,1fr)', gap: 12 }}>
+            {industries.map(([industry, count]) => (
+              <div key={industry} style={{ background: '#F6F9FC', border: '1px solid #E3E8EE', borderRadius: 10, padding: '16px 20px' }}>
+                <p style={{ fontSize: 14, fontWeight: 700, color: '#0A2540' }}>{count}</p>
+                <p style={{ fontSize: 12, color: '#8898aa', marginTop: 2, textTransform: 'capitalize' }}>{industry.replace(/_/g, ' ')}</p>
+                <p style={{ fontSize: 11, color: '#8898aa', marginTop: 4 }}>{Math.round(count / leads.length * 100)}%</p>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
     </div>
   );
 }
