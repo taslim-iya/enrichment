@@ -370,11 +370,15 @@ export default function LeadDetailPage() {
       </Card>
 
       {/* ── Directors card ── */}
-      {directorRows.length > 0 && (
-        <Card title="Directors">
+      <Card title={`Directors (${directorRows.length})`}>
+        {directorRows.length > 0 ? (
           <ContactsTable rows={directorRows} showLinkedIn={true} companyId={company.id} companyName={company.company_name} companyDomain={company.website} isDirector onRefresh={loadCompany} />
-        </Card>
-      )}
+        ) : (
+          <div style={{ fontSize: 14, color: S.textMuted, padding: '12px 0' }}>
+            No directors found. Re-sync from DealFlow or use Apollo enrichment to find contacts.
+          </div>
+        )}
+      </Card>
 
       {/* ── Contacts card ── */}
       {contacts.length > 0 && (
