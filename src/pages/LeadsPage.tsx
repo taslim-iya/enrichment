@@ -51,7 +51,10 @@ const ALL_COLUMNS: ColDef[] = [
   { key: 'website',            label: 'Website',        default: true,  width: 180 },
   { key: 'description',        label: 'Description',    default: false, width: 260 },
   { key: 'address',            label: 'Address',        default: false, width: 200 },
-  { key: 'directors_list',     label: 'Directors',      default: true,  width: 250 },
+  { key: 'directors_list',     label: 'Directors',      default: true,  width: 280 },
+  { key: 'director_email',     label: 'Director Email', default: true,  width: 200 },
+  { key: 'director_phone',     label: 'Director Phone', default: true,  width: 140 },
+  { key: 'director_linkedin',  label: 'Director LinkedIn', default: true, width: 160 },
   { key: 'director_name',      label: 'Primary Director', default: false, width: 150 },
   { key: 'director_title',     label: 'Director Title', default: false, width: 130 },
   { key: 'contacts_list',      label: 'Contacts',       default: true,  width: 280 },
@@ -170,9 +173,9 @@ function Cell({ col, company, width }: { col: ColDef; company: Company; width: n
 
   // Directors list — show up to 3
   if (col.key === 'directors_list') {
-    const dirs = (company.directors as { name: string; title: string }[]) || [];
+    const dirs = (company.directors as { name: string; title: string; email?: string; phone?: string; linkedin_url?: string }[]) || [];
     const primary = company.director_name || company.director;
-    const allDirs: { name: string; title: string }[] = [];
+    const allDirs: { name: string; title: string; email?: string; phone?: string; linkedin_url?: string }[] = [];
     if (dirs.length > 0) {
       allDirs.push(...dirs.slice(0, 3));
     } else if (primary) {
@@ -181,17 +184,20 @@ function Cell({ col, company, width }: { col: ColDef; company: Company; width: n
     if (allDirs.length === 0) return <td style={{ padding: '10px 16px', fontSize: 13, color: STRIPE.textMuted }}>—</td>;
     return (
       <td style={{ padding: '8px 16px', maxWidth: width }}>
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
           {allDirs.map((d, i) => (
-            <div key={i} style={{ display: 'flex', alignItems: 'baseline', gap: 6, overflow: 'hidden' }}>
-              <span style={{ fontSize: 13, fontWeight: 500, color: STRIPE.textPrimary, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
-                {d.name}
-              </span>
-              {d.title && (
-                <span style={{ fontSize: 11, color: STRIPE.textMuted, whiteSpace: 'nowrap' }}>
-                  {d.title}
+            <div key={i} style={{ overflow: 'hidden' }}>
+              <div style={{ display: 'flex', alignItems: 'baseline', gap: 6 }}>
+                <span style={{ fontSize: 13, fontWeight: 500, color: STRIPE.textPrimary, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                  {d.name}
                 </span>
-              )}
+                {d.title && <span style={{ fontSize: 11, color: STRIPE.textMuted, whiteSpace: 'nowrap' }}>{d.title}</span>}
+              </div>
+              <div style={{ display: 'flex', gap: 8, marginTop: 2 }}>
+                {d.email && <a href={`mailto:${d.email}`} onClick={e => e.stopPropagation()} style={{ fontSize: 11, color: STRIPE.primary, textDecoration: 'none' }}>{d.email}</a>}
+                {d.phone && <a href={`tel:${d.phone}`} onClick={e => e.stopPropagation()} style={{ fontSize: 11, color: STRIPE.primary, textDecoration: 'none' }}>{d.phone}</a>}
+                {d.linkedin_url && <a href={d.linkedin_url} target="_blank" rel="noopener noreferrer" onClick={e => e.stopPropagation()} style={{ fontSize: 11, color: '#0A66C2', textDecoration: 'none' }}>LinkedIn</a>}
+              </div>
             </div>
           ))}
           {dirs.length > 3 && (
@@ -203,6 +209,44 @@ function Cell({ col, company, width }: { col: ColDef; company: Company; width: n
   }
 
   // Contacts list — show up to 3 with email/phone
+  // Director email - first director's email
+  if (col.key === 'director_email') {
+    const dirs = (company.directors as { email?: string }[]) || [];
+    const email = dirs.find(d => d.email)?.email;
+    if (!email) return <td style={{ padding: '10px 16px', fontSize: 13, color: STRIPE.textMuted }}>—</td>;
+    return (
+      <td style={{ padding: '10px 16px', maxWidth: width, overflow: 'hidden' }}>
+        <a href={`mailto:${email}`} onClick={e => e.stopPropagation()} style={{ fontSize: 13, color: STRIPE.primary, textDecoration: 'none', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', display: 'block' }}>{email}</a>
+      </td>
+    );
+  }
+
+  // Director phone
+  if (col.key === 'director_phone') {
+    const dirs = (company.directors as { phone?: string }[]) || [];
+    const phone = dirs.find(d => d.phone)?.phone;
+    if (!phone) return <td style={{ padding: '10px 16px', fontSize: 13, color: STRIPE.textMuted }}>—</td>;
+    return (
+      <td style={{ padding: '10px 16px' }}>
+        <a href={`tel:${phone}`} onClick={e => e.stopPropagation()} style={{ fontSize: 13, color: STRIPE.primary, textDecoration: 'none' }}>{phone}</a>
+      </td>
+    );
+  }
+
+  // Director LinkedIn
+  if (col.key === 'director_linkedin') {
+    const dirs = (company.directors as { linkedin_url?: string }[]) || [];
+    const url = dirs.find(d => d.linkedin_url)?.linkedin_url;
+    if (!url) return <td style={{ padding: '10px 16px', fontSize: 13, color: STRIPE.textMuted }}>—</td>;
+    return (
+      <td style={{ padding: '10px 16px', maxWidth: width, overflow: 'hidden' }}>
+        <a href={url} target="_blank" rel="noopener noreferrer" onClick={e => e.stopPropagation()} style={{ fontSize: 13, color: '#0A66C2', textDecoration: 'none', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', display: 'block' }}>
+          {url.replace(/^https?:\/\/(www\.)?linkedin\.com\/in\//, '').replace(/\/$/, '') || 'View'}
+        </a>
+      </td>
+    );
+  }
+
   if (col.key === 'contacts_list') {
     const contacts = (company.contacts as { name: string; title?: string; email?: string; phone?: string }[]) || [];
     if (contacts.length === 0) return <td style={{ padding: '10px 16px', fontSize: 13, color: STRIPE.textMuted }}>—</td>;

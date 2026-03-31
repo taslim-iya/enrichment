@@ -79,6 +79,6 @@ export const useSettingsStore = create<SettingsState>()(
       deleteCustomColumn: (id) =>
         set((state) => ({ customColumns: state.customColumns.filter(c => c.id !== id) })),
     }),
-    { name: 'corgi-settings-v2' }
+    { name: 'corgi-settings-v3' }
   )
 );
