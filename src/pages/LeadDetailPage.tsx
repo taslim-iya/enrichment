@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
-import { ArrowLeft, Globe, Building2, Mail, Phone, ExternalLink, Search, Loader2 } from 'lucide-react';
+import { ArrowLeft, Globe, Building2, Mail, Phone, ExternalLink, Search, Loader2, Newspaper, Users, TrendingUp, Sparkles } from 'lucide-react';
 import { db, type Company } from '../lib/db';
 import { useSettingsStore } from '../lib/store';
 
@@ -213,6 +213,204 @@ function ContactsTable({ rows, showLinkedIn = false, companyId, companyName, com
   );
 }
 
+// ─── Company Intelligence ─────────────────────────────────────────────────────
+
+interface InsightSection {
+  title: string;
+  icon: React.ReactNode;
+  key: string;
+  prompt: string;
+}
+
+function CompanyIntelligence({ company, onUpdate }: { company: Company; onUpdate: () => void }) {
+  const { openaiKey } = useSettingsStore();
+  const [insights, setInsights] = useState<Record<string, string>>(() => {
+    // Load cached insights from company object
+    const cached = (company as any).__insights;
+    return cached && typeof cached === 'object' ? cached : {};
+  });
+  const [loading, setLoading] = useState<string | null>(null);
+  const [personQuery, setPersonQuery] = useState('');
+  const [personResult, setPersonResult] = useState<string | null>(null);
+  const [personLoading, setPersonLoading] = useState(false);
+
+  const apiKey = openaiKey || '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';
+
+  const companyCtx = `Company: ${company.company_name || ''}\nIndustry: ${company.industry || ''}\nGeography: ${company.geography || ''}\nWebsite: ${company.website || ''}\nDescription: ${company.description || ''}\nEmployees: ${company.employees || ''}\nRevenue: ${company.revenue || ''}\nYear Inc: ${company.year_incorporated || ''}`;
+
+  const sections: InsightSection[] = [
+    {
+      title: 'Company News & Events',
+      icon: <Newspaper size={16} />,
+      key: 'news',
+      prompt: `Search your knowledge for the latest news, press releases, events, mergers, acquisitions, funding rounds, partnerships, and significant developments for this company. Include dates where possible. If you can't find specific recent news, provide the most recent known developments and general industry news that would affect them.\n\n${companyCtx}\n\nProvide 5-10 bullet points of news/events, each on its own line starting with a dash. Include approximate dates. Be specific and factual.`,
+    },
+    {
+      title: 'Company Culture & Values',
+      icon: <Users size={16} />,
+      key: 'culture',
+      prompt: `Research this company's culture, values, work environment, and reputation. Include: employee reviews sentiment, company values/mission, work-life balance reputation, diversity initiatives, notable awards or certifications, Glassdoor-type insights, and any public controversies.\n\n${companyCtx}\n\nProvide detailed bullet points about their culture and work environment. Be specific.`,
+    },
+    {
+      title: 'Market Position & Competitors',
+      icon: <TrendingUp size={16} />,
+      key: 'market',
+      prompt: `Analyse this company's market position, competitive landscape, market share, key competitors, strengths/weaknesses, and industry trends affecting them. Include specific competitor names and how they compare.\n\n${companyCtx}\n\nProvide detailed analysis in bullet points.`,
+    },
+    {
+      title: 'Technology & Digital Presence',
+      icon: <Globe size={16} />,
+      key: 'tech',
+      prompt: `Research this company's technology stack, digital presence, website quality, social media activity, tech blog/content, job postings for tech roles, and overall digital maturity. What technologies do they likely use? What does their online presence tell us about them?\n\n${companyCtx}\n\nProvide detailed bullet points about their tech and digital presence.`,
+    },
+    {
+      title: 'Sales Intelligence & Talking Points',
+      icon: <Sparkles size={16} />,
+      key: 'sales',
+      prompt: `As a B2B sales intelligence analyst, create actionable talking points for approaching this company. Include: potential pain points based on their industry/size, likely budget indicators, best approach angle, decision-making structure insights, potential objections and rebuttals, and personalised conversation openers.\n\n${companyCtx}\n\nProvide 8-10 specific, actionable talking points for a sales call.`,
+    },
+  ];
+
+  const runInsight = async (section: InsightSection) => {
+    setLoading(section.key);
+    try {
+      const resp = await fetch('https://api.openai.com/v1/chat/completions', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${apiKey}` },
+        body: JSON.stringify({
+          model: 'gpt-4o-mini',
+          messages: [
+            { role: 'system', content: 'You are a B2B intelligence analyst. Provide detailed, specific, actionable insights. Never say you cannot access the internet — use your training knowledge. Be direct and factual.' },
+            { role: 'user', content: section.prompt },
+          ],
+          max_tokens: 1000,
+        }),
+      });
+      if (resp.ok) {
+        const data = await resp.json();
+        const text = data.choices?.[0]?.message?.content || 'No insights found.';
+        const updated = { ...insights, [section.key]: text };
+        setInsights(updated);
+        // Cache on company
+        if (company.id) {
+          await db.companies.update(company.id, { __insights: updated } as any);
+        }
+      }
+    } catch (e) { console.error(e); }
+    setLoading(null);
+  };
+
+  const runAllInsights = async () => {
+    for (const section of sections) {
+      await runInsight(section);
+    }
+  };
+
+  // Person research
+  const researchPerson = async () => {
+    if (!personQuery.trim()) return;
+    setPersonLoading(true);
+    setPersonResult(null);
+    try {
+      const resp = await fetch('https://api.openai.com/v1/chat/completions', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${apiKey}` },
+        body: JSON.stringify({
+          model: 'gpt-4o-mini',
+          messages: [
+            { role: 'system', content: 'You are a B2B intelligence analyst specialising in people research. Provide detailed professional profiles based on your knowledge.' },
+            { role: 'user', content: `Research this person who works at ${company.company_name} (${company.industry || 'unknown industry'}, ${company.geography || ''}):\n\nName: ${personQuery}\n\nProvide everything you can find or infer:\n- Professional background and career history\n- LinkedIn profile summary\n- Role and responsibilities\n- Social media presence (LinkedIn, Twitter/X, Facebook if public)\n- Published articles, speaking engagements, or public appearances\n- Education background\n- Interests and connections relevant to B2B outreach\n- Best approach for reaching out to this person\n- Conversation starters based on their background\n\nBe specific. If you're uncertain about details, say so but still provide your best analysis.` },
+          ],
+          max_tokens: 1200,
+        }),
+      });
+      if (resp.ok) {
+        const data = await resp.json();
+        setPersonResult(data.choices?.[0]?.message?.content || 'No results found.');
+      }
+    } catch (e) { console.error(e); }
+    setPersonLoading(false);
+  };
+
+  const cardStyle: React.CSSProperties = { background: S.card, border: `1px solid ${S.border}`, borderRadius: 12, padding: 20, marginBottom: 12 };
+
+  return (
+    <Card title="Intelligence & Research">
+      {/* Run All button */}
+      <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: 16 }}>
+        <button onClick={runAllInsights} disabled={loading !== null}
+          style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '8px 18px', borderRadius: 8, border: 'none', background: S.primary, color: '#fff', fontSize: 13, fontWeight: 600, cursor: loading ? 'wait' : 'pointer', opacity: loading ? 0.7 : 1 }}>
+          <Search size={14} /> Research All Sections
+        </button>
+      </div>
+
+      {/* Insight sections */}
+      {sections.map(section => (
+        <div key={section.key} style={cardStyle}>
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: insights[section.key] ? 12 : 0 }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+              <span style={{ color: S.primary }}>{section.icon}</span>
+              <span style={{ fontWeight: 700, fontSize: 14, color: S.textPrimary }}>{section.title}</span>
+            </div>
+            <button onClick={() => runInsight(section)} disabled={loading !== null}
+              style={{ display: 'inline-flex', alignItems: 'center', gap: 4, padding: '5px 12px', borderRadius: 6, border: `1px solid ${S.border}`, background: insights[section.key] ? '#EEF2FF' : S.bg, color: insights[section.key] ? S.primary : S.textSecondary, fontSize: 12, fontWeight: 600, cursor: loading ? 'wait' : 'pointer' }}>
+              {loading === section.key ? <><Loader2 size={12} style={{ animation: 'spin 1s linear infinite' }} /> Researching...</> : insights[section.key] ? <><Search size={12} /> Refresh</> : <><Search size={12} /> Research</>}
+            </button>
+          </div>
+          {insights[section.key] && (
+            <div style={{ fontSize: 13, lineHeight: 1.7, color: S.textSecondary, whiteSpace: 'pre-wrap', borderTop: `1px solid ${S.border}`, paddingTop: 12 }}>
+              {insights[section.key]}
+            </div>
+          )}
+        </div>
+      ))}
+
+      {/* Person Research */}
+      <div style={{ ...cardStyle, background: '#FAFBFE' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 12 }}>
+          <span style={{ color: '#7C3AED' }}><Users size={16} /></span>
+          <span style={{ fontWeight: 700, fontSize: 14, color: S.textPrimary }}>Person Research</span>
+        </div>
+        <p style={{ fontSize: 13, color: S.textMuted, margin: '0 0 12px' }}>
+          Search for a director or contact — finds their LinkedIn, social media, background, and best outreach approach.
+        </p>
+
+        {/* Quick buttons for directors */}
+        {company.directors && (company.directors as any[]).length > 0 && (
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginBottom: 12 }}>
+            {(company.directors as { name: string }[]).map((d, i) => (
+              <button key={i} onClick={() => { setPersonQuery(d.name); setPersonResult(null); }}
+                style={{ padding: '4px 10px', borderRadius: 6, border: `1px solid ${S.border}`, background: personQuery === d.name ? '#EEF2FF' : '#fff', color: personQuery === d.name ? S.primary : S.textSecondary, fontSize: 12, cursor: 'pointer' }}>
+                {d.name}
+              </button>
+            ))}
+          </div>
+        )}
+
+        <div style={{ display: 'flex', gap: 8 }}>
+          <input
+            value={personQuery}
+            onChange={e => setPersonQuery(e.target.value)}
+            onKeyDown={e => e.key === 'Enter' && researchPerson()}
+            placeholder="Enter person's name..."
+            style={{ flex: 1, padding: '8px 12px', borderRadius: 8, border: `1px solid ${S.border}`, fontSize: 14, outline: 'none', fontFamily: 'inherit' }}
+          />
+          <button onClick={researchPerson} disabled={personLoading || !personQuery.trim()}
+            style={{ display: 'inline-flex', alignItems: 'center', gap: 4, padding: '8px 16px', borderRadius: 8, border: 'none', background: '#7C3AED', color: '#fff', fontSize: 13, fontWeight: 600, cursor: personLoading ? 'wait' : 'pointer', opacity: personLoading ? 0.7 : 1 }}>
+            {personLoading ? <><Loader2 size={14} style={{ animation: 'spin 1s linear infinite' }} /> Searching...</> : <><Search size={14} /> Research</>}
+          </button>
+        </div>
+
+        {personResult && (
+          <div style={{ marginTop: 16, padding: 16, background: '#fff', borderRadius: 8, border: `1px solid ${S.border}`, fontSize: 13, lineHeight: 1.7, color: S.textSecondary, whiteSpace: 'pre-wrap' }}>
+            {personResult}
+          </div>
+        )}
+      </div>
+    </Card>
+  );
+}
+
 // ─── Main page ────────────────────────────────────────────────────────────────
 
 export default function LeadDetailPage() {
@@ -412,6 +610,9 @@ export default function LeadDetailPage() {
       )}
 
       {/* ── Notes card ── */}
+      {/* ── Intelligence / Research ── */}
+      <CompanyIntelligence company={company} onUpdate={loadCompany} />
+
       <Card title="Notes">
         <textarea
           value={notes}
