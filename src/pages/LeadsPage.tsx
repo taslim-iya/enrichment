@@ -50,8 +50,12 @@ const ALL_COLUMNS: ColDef[] = [
   { key: 'website',            label: 'Website',        default: false, width: 180 },
   { key: 'description',        label: 'Description',    default: false, width: 260 },
   { key: 'address',            label: 'Address',        default: false, width: 200 },
-  { key: 'director_name',      label: 'Director',       default: true,  width: 150 },
+  { key: 'directors_list',     label: 'Directors',      default: true,  width: 250 },
+  { key: 'director_name',      label: 'Primary Director', default: false, width: 150 },
   { key: 'director_title',     label: 'Director Title', default: false, width: 130 },
+  { key: 'contacts_list',      label: 'Contacts',       default: true,  width: 280 },
+  { key: 'contact_email',      label: 'Contact Email',  default: false, width: 200 },
+  { key: 'contact_phone',      label: 'Contact Phone',  default: false, width: 140 },
   { key: 'year_incorporated',  label: 'Year Inc.',      default: false, width: 90 },
   { key: 'status',             label: 'Status',         default: true,  width: 120 },
   { key: 'score',              label: 'Score',          default: false, width: 80,  format: 'number' },
@@ -141,6 +145,91 @@ function Cell({ col, company, width }: { col: ColDef; company: Company; width: n
     return (
       <td style={{ padding: '10px 16px', whiteSpace: 'nowrap' }}>
         <StatusBadge status={String(raw || '')} />
+      </td>
+    );
+  }
+
+  // Directors list — show up to 3
+  if (col.key === 'directors_list') {
+    const dirs = (company.directors as { name: string; title: string }[]) || [];
+    const primary = company.director_name || company.director;
+    const allDirs: { name: string; title: string }[] = [];
+    if (dirs.length > 0) {
+      allDirs.push(...dirs.slice(0, 3));
+    } else if (primary) {
+      allDirs.push({ name: String(primary), title: String(company.director_title || '') });
+    }
+    if (allDirs.length === 0) return <td style={{ padding: '10px 16px', fontSize: 13, color: STRIPE.textMuted }}>—</td>;
+    return (
+      <td style={{ padding: '8px 16px', maxWidth: width }}>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+          {allDirs.map((d, i) => (
+            <div key={i} style={{ display: 'flex', alignItems: 'baseline', gap: 6, overflow: 'hidden' }}>
+              <span style={{ fontSize: 13, fontWeight: 500, color: STRIPE.textPrimary, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                {d.name}
+              </span>
+              {d.title && (
+                <span style={{ fontSize: 11, color: STRIPE.textMuted, whiteSpace: 'nowrap' }}>
+                  {d.title}
+                </span>
+              )}
+            </div>
+          ))}
+          {dirs.length > 3 && (
+            <span style={{ fontSize: 11, color: STRIPE.primary, fontWeight: 500 }}>+{dirs.length - 3} more</span>
+          )}
+        </div>
+      </td>
+    );
+  }
+
+  // Contacts list — show up to 3 with email/phone
+  if (col.key === 'contacts_list') {
+    const contacts = (company.contacts as { name: string; title?: string; email?: string; phone?: string }[]) || [];
+    if (contacts.length === 0) return <td style={{ padding: '10px 16px', fontSize: 13, color: STRIPE.textMuted }}>—</td>;
+    return (
+      <td style={{ padding: '8px 16px', maxWidth: width }}>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+          {contacts.slice(0, 3).map((c, i) => (
+            <div key={i} style={{ display: 'flex', alignItems: 'baseline', gap: 6, overflow: 'hidden' }}>
+              <span style={{ fontSize: 13, fontWeight: 500, color: STRIPE.textPrimary, whiteSpace: 'nowrap' }}>
+                {c.name}
+              </span>
+              {c.email && (
+                <a href={`mailto:${c.email}`} onClick={e => e.stopPropagation()} style={{ fontSize: 11, color: STRIPE.primary, textDecoration: 'none', whiteSpace: 'nowrap' }}>
+                  {c.email}
+                </a>
+              )}
+            </div>
+          ))}
+          {contacts.length > 3 && (
+            <span style={{ fontSize: 11, color: STRIPE.primary, fontWeight: 500 }}>+{contacts.length - 3} more</span>
+          )}
+        </div>
+      </td>
+    );
+  }
+
+  // Contact email — first contact's email
+  if (col.key === 'contact_email') {
+    const contacts = (company.contacts as { email?: string }[]) || [];
+    const email = contacts.find(c => c.email)?.email;
+    if (!email) return <td style={{ padding: '10px 16px', fontSize: 13, color: STRIPE.textMuted }}>—</td>;
+    return (
+      <td style={{ padding: '10px 16px' }}>
+        <a href={`mailto:${email}`} onClick={e => e.stopPropagation()} style={{ fontSize: 13, color: STRIPE.primary, textDecoration: 'none' }}>{email}</a>
+      </td>
+    );
+  }
+
+  // Contact phone — first contact's phone
+  if (col.key === 'contact_phone') {
+    const contacts = (company.contacts as { phone?: string }[]) || [];
+    const phone = contacts.find(c => c.phone)?.phone;
+    if (!phone) return <td style={{ padding: '10px 16px', fontSize: 13, color: STRIPE.textMuted }}>—</td>;
+    return (
+      <td style={{ padding: '10px 16px' }}>
+        <a href={`tel:${phone}`} onClick={e => e.stopPropagation()} style={{ fontSize: 13, color: STRIPE.textSecondary, textDecoration: 'none' }}>{phone}</a>
       </td>
     );
   }

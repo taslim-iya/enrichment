@@ -20,6 +20,7 @@ export default function App() {
           <Routes>
             <Route path="/" element={<Navigate to="/leads" replace />} />
             <Route path="/chat" element={<JarvisPage />} />
+            <Route path="/jarvis" element={<JarvisPage />} />
             <Route path="/leads" element={<LeadsPage />} />
             <Route path="/leads/:id" element={<LeadDetailPage />} />
             <Route path="/call-sheet" element={<CallSheetPage />} />
