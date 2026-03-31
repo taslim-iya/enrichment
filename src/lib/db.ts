@@ -228,6 +228,7 @@ export async function upsertCompanies(rawCompanies: Record<string, unknown>[]): 
         ...raw,
         dealflow_id,
         company_name: String(raw.company_name || raw.name || ''),
+        source: (raw.source as string) || 'DealFlow',
         timezone,
         updated_at: (raw.updated_at as string) || now,
         created_at: (raw.created_at as string) || now,
