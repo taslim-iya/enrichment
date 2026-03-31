@@ -5,43 +5,102 @@ export function startDealFlowSync(
   onComplete: (totalSent: number) => void,
   onError: (error: string) => void
 ): () => void {
-  const popup = window.open(
-    `${dealflowUrl}/portal?key=${encodeURIComponent(apiKey)}&mode=sync`,
-    'dealflow-sync',
-    'width=500,height=400,scrollbars=yes'
-  );
+  const baseUrl = dealflowUrl.replace(/\/$/, '');
+  const syncUrl = `${baseUrl}/portal?key=${encodeURIComponent(apiKey)}&mode=sync`;
+
+  // Open popup/tab
+  let popup: Window | null = null;
+  try {
+    popup = window.open(syncUrl, 'dealflow-sync', 'width=520,height=420,scrollbars=yes,resizable=yes');
+  } catch { /* blocked */ }
+
+  if (!popup || popup.closed) {
+    try {
+      popup = window.open(syncUrl, '_blank');
+    } catch { /* blocked */ }
+  }
 
   if (!popup) {
-    onError('Popup blocked. Please allow popups for this site.');
+    onError(
+      'Popup was blocked by your browser. Please allow popups for this site and try again.'
+    );
     return () => {};
   }
 
-  const handler = (event: MessageEvent) => {
-    const data = event.data;
-    if (data?.type === 'dealflow-batch') {
-      if (data.done) {
-        onComplete(data.sent || data.total || 0);
-        window.removeEventListener('message', handler);
-        try { popup.close(); } catch { /* ignore */ }
-      } else {
-        onBatch(data.companies || [], data.sent || 0, data.total || 0);
+  let completed = false;
+  let totalReceived = 0;
+
+  // Handler for processing sync messages (from postMessage or BroadcastChannel)
+  const processMessage = (data: Record<string, unknown>) => {
+    if (!data || data.type !== 'dealflow-batch') return;
+
+    if (data.done) {
+      completed = true;
+      const finalTotal = (data.sent || data.total || totalReceived) as number;
+      onComplete(finalTotal);
+      cleanup();
+      try { popup?.close(); } catch { /* ignore */ }
+    } else {
+      const companies = (data.companies || []) as Record<string, unknown>[];
+      totalReceived += companies.length;
+      onBatch(companies, (data.sent || totalReceived) as number, (data.total || 0) as number);
+    }
+  };
+
+  // Listen via window.postMessage (popup mode)
+  const messageHandler = (event: MessageEvent) => {
+    if (event.data && typeof event.data === 'object') {
+      processMessage(event.data);
+    }
+  };
+  window.addEventListener('message', messageHandler);
+
+  // Also listen via BroadcastChannel (new tab mode)
+  let channel: BroadcastChannel | null = null;
+  try {
+    channel = new BroadcastChannel('dealflow-sync');
+    channel.onmessage = (event: MessageEvent) => {
+      if (event.data && typeof event.data === 'object') {
+        processMessage(event.data);
       }
-    }
-  };
+    };
+  } catch {
+    // BroadcastChannel not supported
+  }
 
-  window.addEventListener('message', handler);
-
-  // Check if popup was closed manually
+  // Check if popup was closed without completing
   const interval = setInterval(() => {
-    if (popup.closed) {
-      clearInterval(interval);
-      window.removeEventListener('message', handler);
-    }
-  }, 1000);
+    try {
+      if (popup && popup.closed && !completed) {
+        if (totalReceived > 0) {
+          onComplete(totalReceived);
+        } else {
+          onError('Sync window was closed. Make sure you have companies assigned to this client in DealFlow.');
+        }
+        cleanup();
+      }
+    } catch { /* cross-origin */ }
+  }, 1500);
 
-  return () => {
-    window.removeEventListener('message', handler);
+  // Timeout after 2 minutes
+  const timeout = setTimeout(() => {
+    if (!completed) {
+      if (totalReceived > 0) {
+        onComplete(totalReceived);
+      } else {
+        onError('Sync timed out. Check that DealFlow is accessible and companies are assigned to this client.');
+      }
+      cleanup();
+      try { popup?.close(); } catch { /* ignore */ }
+    }
+  }, 120000);
+
+  function cleanup() {
+    window.removeEventListener('message', messageHandler);
     clearInterval(interval);
-    try { popup.close(); } catch { /* ignore */ }
-  };
+    clearTimeout(timeout);
+    try { channel?.close(); } catch { /* ignore */ }
+  }
+
+  return cleanup;
 }
