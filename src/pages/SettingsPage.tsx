@@ -660,6 +660,62 @@ export default function SettingsPage() {
         </div>
       </div>
 
+      {/* ── 7. Danger Zone ──────────────────────────────────── */}
+      <div style={{
+        background: S.card,
+        border: `2px solid ${S.danger}33`,
+        borderRadius: 12,
+        padding: 24,
+        boxShadow: '0 1px 3px rgba(0,0,0,0.04)',
+      }}>
+        <div style={{ fontSize: 15, fontWeight: 600, color: S.danger, marginBottom: 8 }}>Danger Zone</div>
+        <p style={{ fontSize: 13, color: S.textMuted, margin: '0 0 16px' }}>These actions cannot be undone.</p>
+        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 12 }}>
+          <button
+            onClick={async () => {
+              if (!window.confirm('Delete ALL companies? This cannot be undone.')) return;
+              if (!window.confirm('Are you absolutely sure? All company data, enrichment results, and notes will be lost.')) return;
+              await db.companies.clear();
+              alert('All companies deleted.');
+            }}
+            style={{ padding: '8px 18px', borderRadius: 8, border: `1px solid ${S.danger}`, background: '#FEF2F2', color: S.danger, fontSize: 13, fontWeight: 600, cursor: 'pointer' }}
+          >
+            Delete All Companies
+          </button>
+          <button
+            onClick={async () => {
+              if (!window.confirm('Clear all chat messages?')) return;
+              await db.chat_messages.clear();
+              alert('Chat history cleared.');
+            }}
+            style={{ padding: '8px 18px', borderRadius: 8, border: `1px solid ${S.border}`, background: S.bg, color: S.textSecondary, fontSize: 13, fontWeight: 600, cursor: 'pointer' }}
+          >
+            Clear Chat History
+          </button>
+          <button
+            onClick={async () => {
+              if (!window.confirm('Clear all enrichment logs?')) return;
+              await db.enrichment_log.clear();
+              alert('Enrichment logs cleared.');
+            }}
+            style={{ padding: '8px 18px', borderRadius: 8, border: `1px solid ${S.border}`, background: S.bg, color: S.textSecondary, fontSize: 13, fontWeight: 600, cursor: 'pointer' }}
+          >
+            Clear Enrichment Logs
+          </button>
+          <button
+            onClick={async () => {
+              if (!window.confirm('Reset ALL data? Companies, leads, team, call sheets, chat — everything?')) return;
+              if (!window.confirm('Last chance. This wipes the entire database.')) return;
+              await db.delete();
+              window.location.reload();
+            }}
+            style={{ padding: '8px 18px', borderRadius: 8, border: `1px solid ${S.danger}`, background: S.danger, color: '#fff', fontSize: 13, fontWeight: 600, cursor: 'pointer' }}
+          >
+            Factory Reset (Delete Everything)
+          </button>
+        </div>
+      </div>
+
       <style>{`
         @keyframes spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
       `}</style>
