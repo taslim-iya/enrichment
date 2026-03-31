@@ -55,13 +55,14 @@ const ALL_COLUMNS: ColDef[] = [
   { key: 'director_name',      label: 'Primary Director', default: false, width: 150 },
   { key: 'director_title',     label: 'Director Title', default: false, width: 130 },
   { key: 'contacts_list',      label: 'Contacts',       default: true,  width: 280 },
-  { key: 'contact_email',      label: 'Contact Email',  default: false, width: 200 },
-  { key: 'contact_phone',      label: 'Contact Phone',  default: false, width: 140 },
-  { key: 'year_incorporated',  label: 'Year Inc.',      default: false, width: 90 },
+  { key: 'contact_email',      label: 'Contact Email',  default: true,  width: 200 },
+  { key: 'contact_phone',      label: 'Contact Phone',  default: true,  width: 140 },
+  { key: 'contact_linkedin',   label: 'LinkedIn',       default: true,  width: 180 },
+  { key: 'year_incorporated',  label: 'Year Inc.',      default: true,  width: 90 },
   { key: 'status',             label: 'Status',         default: true,  width: 120 },
   { key: 'score',              label: 'Score',          default: false, width: 80,  format: 'number' },
   { key: 'qualification_score', label: 'Q. Score',      default: false, width: 80,  format: 'number' },
-  { key: 'source',             label: 'Source',         default: false, width: 120 },
+  { key: 'source',             label: 'Source',         default: true,  width: 120 },
   { key: 'tags',               label: 'Tags',           default: false, width: 160 },
   { key: 'notes',              label: 'Notes',          default: false, width: 200 },
   { key: 'created_at',         label: 'Created',        default: false, width: 100, format: 'date' },
@@ -249,6 +250,21 @@ function Cell({ col, company, width }: { col: ColDef; company: Company; width: n
             <span key={i} style={{ fontSize: 12, fontWeight: 500, color: STRIPE.primary, background: '#EEF2FF', borderRadius: 4, padding: '1px 8px' }}>{n}</span>
           ))}
         </div>
+      </td>
+    );
+  }
+
+  // LinkedIn — clickable link from contacts
+  if (col.key === 'contact_linkedin') {
+    const contacts = (company.contacts as { linkedin_url?: string }[]) || [];
+    const url = contacts.find(c => c.linkedin_url)?.linkedin_url;
+    if (!url) return <td style={{ padding: '10px 16px', fontSize: 13, color: STRIPE.textMuted }}>—</td>;
+    return (
+      <td style={{ padding: '10px 16px', maxWidth: width, overflow: 'hidden' }}>
+        <a href={url} target="_blank" rel="noopener noreferrer" onClick={e => e.stopPropagation()}
+          style={{ fontSize: 13, color: '#0A66C2', textDecoration: 'none', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', display: 'block' }}>
+          {url.replace(/^https?:\/\/(www\.)?linkedin\.com\/in\//, '').replace(/\/$/, '') || 'View Profile'}
+        </a>
       </td>
     );
   }
