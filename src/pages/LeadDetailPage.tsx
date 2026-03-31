@@ -416,6 +416,7 @@ function CompanyIntelligence({ company, onUpdate }: { company: Company; onUpdate
 export default function LeadDetailPage() {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
+  const { openaiKey } = useSettingsStore();
   const [company, setCompany] = useState<Company | null | undefined>(undefined);
   const [notes, setNotes]     = useState('');
   const [notesSaved, setNotesSaved] = useState(false);
@@ -612,6 +613,111 @@ export default function LeadDetailPage() {
       {/* ── Notes card ── */}
       {/* ── Intelligence / Research ── */}
       <CompanyIntelligence company={company} onUpdate={loadCompany} />
+
+      {/* ── Qualification ── */}
+      <Card title="Qualification">
+        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 16 }}>
+          {/* Status */}
+          <div style={{ flex: '1 1 200px' }}>
+            <label style={{ fontSize: 11, fontWeight: 700, color: S.textMuted, textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: 6, display: 'block' }}>Pipeline Status</label>
+            <select
+              value={company.status || 'New'}
+              onChange={async (e) => {
+                if (company.id) { await db.companies.update(company.id, { status: e.target.value }); loadCompany(); }
+              }}
+              style={{ width: '100%', padding: '8px 12px', borderRadius: 8, border: `1px solid ${S.border}`, fontSize: 14, color: S.textPrimary, background: '#fff', cursor: 'pointer' }}
+            >
+              {['New','Researching','Contacted','Responded','Meeting Scheduled','Proposal Sent','Negotiating','Won','Lost','On Hold','Qualified','Unqualified','Do Not Contact'].map(s => (
+                <option key={s} value={s}>{s}</option>
+              ))}
+            </select>
+          </div>
+
+          {/* Score */}
+          <div style={{ flex: '1 1 120px' }}>
+            <label style={{ fontSize: 11, fontWeight: 700, color: S.textMuted, textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: 6, display: 'block' }}>Score (0-100)</label>
+            <input
+              type="number" min={0} max={100}
+              value={company.score ?? company.qualification_score ?? ''}
+              onChange={async (e) => {
+                const v = Number(e.target.value);
+                if (company.id && v >= 0 && v <= 100) { await db.companies.update(company.id, { score: v, qualification_score: v }); loadCompany(); }
+              }}
+              style={{ width: '100%', padding: '8px 12px', borderRadius: 8, border: `1px solid ${S.border}`, fontSize: 14, color: S.textPrimary, background: '#fff' }}
+            />
+          </div>
+
+          {/* AI Qualify button */}
+          <div style={{ flex: '1 1 200px', display: 'flex', alignItems: 'flex-end' }}>
+            <button
+              onClick={async () => {
+                const key = openaiKey || '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';
+                try {
+                  const resp = await fetch('https://api.openai.com/v1/chat/completions', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${key}` },
+                    body: JSON.stringify({
+                      model: 'gpt-4o-mini',
+                      messages: [
+                        { role: 'system', content: 'You are a B2B lead qualification expert. Score the company 0-100 and provide a qualification status. Respond ONLY in JSON format: {"score": number, "status": "Qualified"|"Unqualified"|"Needs Research", "reason": "brief explanation"}' },
+                        { role: 'user', content: `Qualify this company as a B2B lead:\nName: ${company.company_name}\nIndustry: ${company.industry || 'Unknown'}\nGeography: ${company.geography || 'Unknown'}\nRevenue: ${company.revenue || 'Unknown'}\nEmployees: ${company.employees || 'Unknown'}\nWebsite: ${company.website || 'None'}\nDescription: ${company.description || 'None'}\nHas contacts: ${company.contacts?.length ? 'Yes' : 'No'}\nHas directors: ${company.directors?.length ? 'Yes' : 'No'}\nYear Inc: ${company.year_incorporated || 'Unknown'}` },
+                      ],
+                      max_tokens: 200,
+                    }),
+                  });
+                  if (resp.ok) {
+                    const data = await resp.json();
+                    const text = data.choices?.[0]?.message?.content || '';
+                    try {
+                      const parsed = JSON.parse(text);
+                      if (company.id) {
+                        await db.companies.update(company.id, {
+                          score: parsed.score, qualification_score: parsed.score,
+                          status: parsed.status || company.status,
+                          qualification_reason: parsed.reason,
+                        } as any);
+                        loadCompany();
+                      }
+                    } catch { /* parse error */ }
+                  }
+                } catch (e) { console.error(e); }
+              }}
+              style={{ padding: '8px 18px', borderRadius: 8, border: 'none', background: S.primary, color: '#fff', fontSize: 13, fontWeight: 600, cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: 6 }}
+            >
+              <Sparkles size={14} /> AI Qualify
+            </button>
+          </div>
+        </div>
+
+        {/* Qualification reason */}
+        {(company as any).qualification_reason && (
+          <div style={{ marginTop: 12, padding: 12, background: S.bg, borderRadius: 8, fontSize: 13, color: S.textSecondary }}>
+            <strong>AI Assessment:</strong> {(company as any).qualification_reason}
+          </div>
+        )}
+
+        {/* Score badge */}
+        {(company.score != null || company.qualification_score != null) && (
+          <div style={{ marginTop: 12, display: 'flex', alignItems: 'center', gap: 8 }}>
+            <span style={{ fontSize: 12, color: S.textMuted }}>Current Score:</span>
+            <span style={{
+              display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
+              width: 36, height: 36, borderRadius: '50%', fontWeight: 700, fontSize: 14,
+              background: (company.score ?? company.qualification_score ?? 0) >= 70 ? '#D1FAE5' :
+                (company.score ?? company.qualification_score ?? 0) >= 40 ? '#FEF3C7' : '#FEE2E2',
+              color: (company.score ?? company.qualification_score ?? 0) >= 70 ? '#059669' :
+                (company.score ?? company.qualification_score ?? 0) >= 40 ? '#D97706' : '#E25950',
+            }}>
+              {company.score ?? company.qualification_score ?? 0}
+            </span>
+            <span style={{ fontSize: 13, fontWeight: 600, color:
+              (company.score ?? 0) >= 70 ? '#059669' : (company.score ?? 0) >= 40 ? '#D97706' : '#E25950'
+            }}>
+              {(company.score ?? 0) >= 70 ? 'Strong Lead' : (company.score ?? 0) >= 40 ? 'Moderate' : 'Weak Lead'}
+            </span>
+          </div>
+        )}
+      </Card>
 
       <Card title="Notes">
         <textarea
