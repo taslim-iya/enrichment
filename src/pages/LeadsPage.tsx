@@ -66,6 +66,7 @@ const ALL_COLUMNS: ColDef[] = [
   { key: 'notes',              label: 'Notes',          default: false, width: 200 },
   { key: 'created_at',         label: 'Created',        default: false, width: 100, format: 'date' },
   { key: 'updated_at',         label: 'Updated',        default: false, width: 100, format: 'date' },
+  { key: 'assigned_to',        label: 'Assigned To',    default: true,  width: 140 },
 ];
 
 const DEFAULT_COL_KEYS = ALL_COLUMNS.filter(c => c.default).map(c => c.key);
@@ -235,6 +236,23 @@ function Cell({ col, company, width }: { col: ColDef; company: Company; width: n
     );
   }
 
+  // Assigned To — show team member name(s)
+  if (col.key === 'assigned_to') {
+    const companyAssignments = ((window as any).__e1_assignments || []).filter((a: any) => a.lead_id === company.id);
+    const memberMap: Record<number, string> = ((window as any).__e1_teamMembers || []).reduce((acc: any, m: any) => ({ ...acc, [m.id]: m.name }), {});
+    const names = companyAssignments.map((a: any) => memberMap[a.team_member_id]).filter(Boolean);
+    if (names.length === 0) return <td style={{ padding: '10px 16px', fontSize: 13, color: STRIPE.textMuted }}>—</td>;
+    return (
+      <td style={{ padding: '10px 16px' }}>
+        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4 }}>
+          {names.map((n: string, i: number) => (
+            <span key={i} style={{ fontSize: 12, fontWeight: 500, color: STRIPE.primary, background: '#EEF2FF', borderRadius: 4, padding: '1px 8px' }}>{n}</span>
+          ))}
+        </div>
+      </td>
+    );
+  }
+
   // Website — clickable link
   if (col.key === 'website') {
     const url = company.website;
@@ -308,6 +326,9 @@ export default function LeadsPage() {
   const [filterGeo, setFilterGeo]       = useState('');
   const [filterStatus, setFilterStatus] = useState('');
   const [filterTimezone, setFilterTimezone] = useState('');
+  const [filterTeamMember, setFilterTeamMember] = useState('');
+  const [teamMembers, setTeamMembers] = useState<{ id: number; name: string }[]>([]);
+  const [assignments, setAssignments] = useState<{ lead_id: number; team_member_id: number }[]>([]);
   const [sortKey, setSortKey]           = useState('company_name');
   const [sortDir, setSortDir]           = useState<SortDir>('asc');
   const [page, setPage]                 = useState(1);
@@ -363,7 +384,15 @@ export default function LeadsPage() {
   }, []);
 
   useEffect(() => { loadCompanies(); }, [loadCompanies]);
-  useEffect(() => { setPage(1); }, [search, filterIndustry, filterGeo, filterStatus, filterTimezone]);
+  useEffect(() => {
+    (async () => {
+      const members = await db.team_members.toArray();
+      setTeamMembers(members.filter(m => m.active).map(m => ({ id: m.id!, name: m.name })));
+      const assigns = await db.lead_assignments.toArray();
+      setAssignments(assigns.map(a => ({ lead_id: a.lead_id, team_member_id: a.team_member_id })));
+    })();
+  }, []);
+  useEffect(() => { setPage(1); }, [search, filterIndustry, filterGeo, filterStatus, filterTimezone, filterTeamMember]);
 
   // ── Close column picker on outside click ──────────────────────────────────
 
@@ -437,6 +466,10 @@ export default function LeadsPage() {
     if (filterGeo)      list = list.filter(c => c.geography === filterGeo || c.state === filterGeo);
     if (filterStatus)   list = list.filter(c => c.status === filterStatus);
     if (filterTimezone) list = list.filter(c => c.timezone === filterTimezone);
+    if (filterTeamMember) {
+      const memberAssignedIds = new Set(assignments.filter(a => a.team_member_id === Number(filterTeamMember)).map(a => a.lead_id));
+      list = list.filter(c => c.id && memberAssignedIds.has(c.id));
+    }
 
     if (sortKey) {
       list = [...list].sort((a, b) => {
@@ -511,7 +544,12 @@ export default function LeadsPage() {
     { label: 'Geography', value: filterGeo,        onChange: setFilterGeo,       options: geos },
     { label: 'Status',    value: filterStatus,     onChange: setFilterStatus,    options: statuses },
     { label: 'Timezone',  value: filterTimezone,   onChange: setFilterTimezone,  options: timezones },
+    { label: 'Team Member', value: filterTeamMember, onChange: setFilterTeamMember, options: teamMembers.map(m => m.id!.toString()), optionLabels: teamMembers.reduce((acc, m) => ({ ...acc, [m.id!.toString()]: m.name }), {} as Record<string, string>) },
   ];
+
+  // Expose to Cell renderer (Cell is outside this component scope)
+  (window as any).__e1_assignments = assignments;
+  (window as any).__e1_teamMembers = teamMembers;
 
   return (
     <div>
@@ -708,7 +746,7 @@ export default function LeadsPage() {
             }}
           >
             <option value="">{f.label}: All</option>
-            {f.options.map(o => <option key={o} value={o}>{o}</option>)}
+            {f.options.map(o => <option key={o} value={o}>{(f as any).optionLabels?.[o] || o}</option>)}
           </select>
         ))}
         {(filterIndustry || filterGeo || filterStatus || filterTimezone || search) && (
