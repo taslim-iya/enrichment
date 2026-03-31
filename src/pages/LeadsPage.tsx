@@ -55,6 +55,7 @@ const ALL_COLUMNS: ColDef[] = [
   { key: 'director_email',     label: 'Director Email', default: true,  width: 200 },
   { key: 'director_phone',     label: 'Director Phone', default: true,  width: 140 },
   { key: 'director_linkedin',  label: 'Director LinkedIn', default: true, width: 160 },
+  { key: 'director_count',     label: '# Directors',    default: true,  width: 90, format: 'number' },
   { key: 'director_name',      label: 'Primary Director', default: false, width: 150 },
   { key: 'director_title',     label: 'Director Title', default: false, width: 130 },
   { key: 'contacts_list',      label: 'Contacts',       default: true,  width: 280 },
@@ -245,6 +246,13 @@ function Cell({ col, company, width }: { col: ColDef; company: Company; width: n
         </a>
       </td>
     );
+  }
+
+  // Director count
+  if (col.key === 'director_count') {
+    const dirs = (company.directors as unknown[]) || [];
+    const count = dirs.length || (company.director_name || company.director ? 1 : 0);
+    return <td style={{ padding: '10px 16px', fontSize: 13, fontWeight: 600, color: count > 0 ? STRIPE.textPrimary : STRIPE.textMuted, textAlign: 'center' }}>{count}</td>;
   }
 
   if (col.key === 'contacts_list') {
