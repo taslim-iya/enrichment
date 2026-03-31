@@ -158,6 +158,129 @@ interface MissingDataRow {
 
 // ─── Main page ────────────────────────────────────────────────────────────────
 
+// ─── Batch Enrichment Panel ──────────────────────────────────────────────────
+
+const ENRICHMENT_OPTIONS = [
+  { key: 'timezone',      label: 'Timezone',               desc: 'Derive timezone from geography (instant, no API)', icon: '🕐', category: 'Basic' },
+  { key: 'missing',       label: 'Missing Data Scan',      desc: 'Find which fields are empty across all companies', icon: '📊', category: 'Basic' },
+  { key: 'scoring',       label: 'Lead Scoring',           desc: 'Score all companies 0-100 based on data completeness', icon: '⭐', category: 'Basic' },
+  { key: 'apolloPeople',  label: 'Find Contacts (Apollo)', desc: 'Find contact details for companies missing contacts', icon: '👥', category: 'Apollo' },
+  { key: 'directors',     label: 'Director Enrichment',    desc: 'Find email/phone/LinkedIn for all directors', icon: '👔', category: 'Apollo' },
+  { key: 'apolloCompany', label: 'Company Data (Apollo)',  desc: 'Enrich company info via domain lookup', icon: '🏢', category: 'Apollo' },
+  { key: 'news',          label: 'Company News',           desc: 'AI-powered news and events for each company', icon: '📰', category: 'AI' },
+  { key: 'linkedin',      label: 'LinkedIn Profiles',      desc: 'Enrich contacts with LinkedIn profile data', icon: '🔗', category: 'AI' },
+  { key: 'emailVerify',   label: 'Email Verification',     desc: 'Verify and score email addresses', icon: '✉️', category: 'AI' },
+];
+
+function BatchEnrichmentPanel({ onRunTimezone, onRunMissingData, onRunApolloPeople, onRunDirectors, onRunApolloCompany, onRunScoring, onRunNews, onRunLinkedIn, onRunEmailVerify, anyRunning }: {
+  onRunTimezone: () => void; onRunMissingData: () => void; onRunApolloPeople: () => void;
+  onRunDirectors: () => void; onRunApolloCompany: () => void; onRunScoring: () => void;
+  onRunNews: () => void; onRunLinkedIn: () => void; onRunEmailVerify: () => void;
+  anyRunning: boolean;
+}) {
+  const [selected, setSelected] = useState<Set<string>>(new Set());
+  const [running, setRunning] = useState(false);
+
+  const toggle = (key: string) => {
+    const next = new Set(selected);
+    next.has(key) ? next.delete(key) : next.add(key);
+    setSelected(next);
+  };
+
+  const selectAll = () => {
+    if (selected.size === ENRICHMENT_OPTIONS.length) setSelected(new Set());
+    else setSelected(new Set(ENRICHMENT_OPTIONS.map(o => o.key)));
+  };
+
+  const selectCategory = (cat: string) => {
+    const keys = ENRICHMENT_OPTIONS.filter(o => o.category === cat).map(o => o.key);
+    const allSelected = keys.every(k => selected.has(k));
+    const next = new Set(selected);
+    keys.forEach(k => allSelected ? next.delete(k) : next.add(k));
+    setSelected(next);
+  };
+
+  const runMap: Record<string, () => void> = {
+    timezone: onRunTimezone, missing: onRunMissingData, apolloPeople: onRunApolloPeople,
+    directors: onRunDirectors, apolloCompany: onRunApolloCompany, scoring: onRunScoring,
+    news: onRunNews, linkedin: onRunLinkedIn, emailVerify: onRunEmailVerify,
+  };
+
+  const runBatch = async () => {
+    if (selected.size === 0 || running) return;
+    setRunning(true);
+    // Run in order: basic first, then apollo, then AI
+    const order = ['timezone', 'missing', 'scoring', 'apolloPeople', 'directors', 'apolloCompany', 'news', 'linkedin', 'emailVerify'];
+    for (const key of order) {
+      if (selected.has(key) && runMap[key]) {
+        try { await runMap[key](); } catch { /* continue */ }
+      }
+    }
+    setRunning(false);
+  };
+
+  const categories = ['Basic', 'Apollo', 'AI'];
+
+  return (
+    <div style={{ background: S.card, border: `1px solid ${S.border}`, borderRadius: 12, padding: 24, marginBottom: 20, boxShadow: '0 1px 3px rgba(0,0,0,0.04)' }}>
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 16 }}>
+        <div>
+          <h2 style={{ fontSize: 16, fontWeight: 700, color: S.textPrimary, margin: 0 }}>Batch Enrichment</h2>
+          <p style={{ fontSize: 13, color: S.textMuted, margin: '4px 0 0' }}>Select enrichment types and run them all at once</p>
+        </div>
+        <div style={{ display: 'flex', gap: 8 }}>
+          <button onClick={selectAll}
+            style={{ padding: '6px 12px', borderRadius: 6, border: `1px solid ${S.border}`, background: selected.size === ENRICHMENT_OPTIONS.length ? '#EEF2FF' : '#fff', color: selected.size === ENRICHMENT_OPTIONS.length ? S.primary : S.textSecondary, fontSize: 12, fontWeight: 600, cursor: 'pointer' }}>
+            {selected.size === ENRICHMENT_OPTIONS.length ? 'Deselect All' : 'Select All'}
+          </button>
+          <button onClick={runBatch} disabled={selected.size === 0 || running || anyRunning}
+            style={{ padding: '6px 18px', borderRadius: 6, border: 'none', background: selected.size === 0 || running ? '#E3E8EE' : S.primary, color: selected.size === 0 || running ? S.textMuted : '#fff', fontSize: 12, fontWeight: 700, cursor: selected.size === 0 || running ? 'default' : 'pointer' }}>
+            {running ? `Running ${selected.size} enrichments...` : `Run ${selected.size} Selected`}
+          </button>
+        </div>
+      </div>
+
+      {/* Category tabs */}
+      <div style={{ display: 'flex', gap: 8, marginBottom: 16 }}>
+        {categories.map(cat => {
+          const catKeys = ENRICHMENT_OPTIONS.filter(o => o.category === cat).map(o => o.key);
+          const allSel = catKeys.every(k => selected.has(k));
+          return (
+            <button key={cat} onClick={() => selectCategory(cat)}
+              style={{ padding: '4px 12px', borderRadius: 20, border: `1px solid ${allSel ? S.primary : S.border}`, background: allSel ? '#EEF2FF' : '#fff', color: allSel ? S.primary : S.textSecondary, fontSize: 12, fontWeight: 600, cursor: 'pointer' }}>
+              {cat} ({catKeys.length})
+            </button>
+          );
+        })}
+      </div>
+
+      {/* Options grid */}
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(280px, 1fr))', gap: 10 }}>
+        {ENRICHMENT_OPTIONS.map(opt => {
+          const isSelected = selected.has(opt.key);
+          return (
+            <div key={opt.key} onClick={() => toggle(opt.key)}
+              style={{
+                padding: '12px 14px', borderRadius: 10, cursor: 'pointer',
+                border: `2px solid ${isSelected ? S.primary : S.border}`,
+                background: isSelected ? '#F8F7FF' : '#fff',
+                transition: 'all 0.15s',
+              }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                <input type="checkbox" checked={isSelected} readOnly style={{ cursor: 'pointer', accentColor: S.primary }} />
+                <span style={{ fontSize: 16 }}>{opt.icon}</span>
+                <span style={{ fontSize: 13, fontWeight: 700, color: S.textPrimary }}>{opt.label}</span>
+                <span style={{ fontSize: 10, fontWeight: 600, color: S.textMuted, marginLeft: 'auto', padding: '2px 6px', background: S.bg, borderRadius: 4 }}>{opt.category}</span>
+              </div>
+              <p style={{ fontSize: 12, color: S.textMuted, margin: '6px 0 0 28px' }}>{opt.desc}</p>
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
 export default function EnrichmentPage() {
   const { apolloApiKey, insightEngineUrl, openaiKey } = useSettingsStore();
 
@@ -949,6 +1072,20 @@ export default function EnrichmentPage() {
           </div>
         )}
       </div>
+
+      {/* ── Batch Enrichment Panel ────────────────────────────── */}
+      <BatchEnrichmentPanel
+        onRunTimezone={runTimezoneEnrichment}
+        onRunMissingData={runMissingDataScan}
+        onRunApolloPeople={runApolloPeopleEnrichment}
+        onRunDirectors={runDirectorEnrichment}
+        onRunApolloCompany={runApolloCompanyEnrichment}
+        onRunScoring={runLocalScoring}
+        onRunNews={runNewsEnrichment}
+        onRunLinkedIn={runLinkedinEnrichment}
+        onRunEmailVerify={runEmailVerification}
+        anyRunning={anyRunning}
+      />
 
       {/* ── Card 1: Timezone ─────────────────────────────────── */}
       <EnrichmentCard
