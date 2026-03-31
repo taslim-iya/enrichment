@@ -48,7 +48,7 @@ const ALL_COLUMNS: ColDef[] = [
   { key: 'profit_before_tax',  label: 'P/L Before Tax', default: true,  width: 130, format: 'currency' },
   { key: 'total_assets',       label: 'Total Assets',   default: false, width: 130, format: 'currency' },
   { key: 'equity',             label: 'Equity',         default: false, width: 120, format: 'currency' },
-  { key: 'website',            label: 'Website',        default: false, width: 180 },
+  { key: 'website',            label: 'Website',        default: true,  width: 180 },
   { key: 'description',        label: 'Description',    default: false, width: 260 },
   { key: 'address',            label: 'Address',        default: false, width: 200 },
   { key: 'directors_list',     label: 'Directors',      default: true,  width: 250 },
@@ -231,6 +231,23 @@ function Cell({ col, company, width }: { col: ColDef; company: Company; width: n
     return (
       <td style={{ padding: '10px 16px' }}>
         <a href={`tel:${phone}`} onClick={e => e.stopPropagation()} style={{ fontSize: 13, color: STRIPE.textSecondary, textDecoration: 'none' }}>{phone}</a>
+      </td>
+    );
+  }
+
+  // Website — clickable link
+  if (col.key === 'website') {
+    const url = company.website;
+    if (!url) return <td style={{ padding: '10px 16px', fontSize: 13, color: STRIPE.textMuted }}>—</td>;
+    const href = String(url).startsWith('http') ? String(url) : `https://${url}`;
+    const display = String(url).replace(/^https?:\/\/(www\.)?/, '').replace(/\/$/, '');
+    return (
+      <td style={{ padding: '10px 16px', maxWidth: width, overflow: 'hidden' }}>
+        <a href={href} target="_blank" rel="noopener noreferrer" onClick={e => e.stopPropagation()}
+          style={{ fontSize: 13, color: STRIPE.primary, textDecoration: 'none', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', display: 'block' }}
+          title={String(url)}>
+          {display}
+        </a>
       </td>
     );
   }
