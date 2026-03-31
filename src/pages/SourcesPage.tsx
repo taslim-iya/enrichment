@@ -56,7 +56,7 @@ export default function SourcesPage() {
   return (
     <div className="space-y-6 max-w-4xl">
       <div>
-        <h1 className="text-3xl font-bold text-[#f7f8f8]">Enrichment Engine</h1>
+        <h1 className="text-xl font-bold tracking-tight" style={{ color: '#f7f8f8' }}>Enrichment Engine</h1>
         <p className="text-[#95a2b3] mt-1">Configure enrichment sources and API keys</p>
       </div>
 

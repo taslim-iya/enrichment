@@ -37,8 +37,8 @@ export default function EnrichmentPage() {
   return (
     <div className="space-y-6">
       <div>
-        <h1 className="text-3xl font-bold">Enrichment Dashboard</h1>
-        <p className="text-[#95a2b3] mt-1">Overview of your data quality and enrichment progress</p>
+        <h1 className="text-xl font-bold tracking-tight" style={{ color: '#f7f8f8' }}>Enrichment Dashboard</h1>
+        <p className="text-[13px] mt-0.5" style={{ color: '#5c6370' }}>Overview of your data quality and enrichment progress</p>
       </div>
 
       <div className="grid grid-cols-1 md:grid-cols-4 gap-4">

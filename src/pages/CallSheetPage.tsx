@@ -65,8 +65,8 @@ export default function CallSheetPage() {
     <div className="space-y-6 max-w-5xl">
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-3xl font-bold text-[#f7f8f8]">For Me</h1>
-          <p className="text-[#95a2b3] mt-1">Your call sheet — leads to contact today</p>
+          <h1 className="text-xl font-bold tracking-tight" style={{ color: '#f7f8f8' }}>For Me</h1>
+          <p className="text-[13px] mt-0.5" style={{ color: '#5c6370' }}>Your call sheet — leads to contact today</p>
         </div>
         <div className="flex items-center gap-3">
           <Select value={selectedMember} onValueChange={setSelectedMember}>

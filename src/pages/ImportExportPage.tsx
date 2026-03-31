@@ -164,7 +164,7 @@ export default function ImportExportPage() {
   return (
     <div className="space-y-6">
       <div>
-        <h1 className="text-3xl font-bold">Import & Export</h1>
+        <h1 className="text-xl font-bold tracking-tight" style={{ color: '#f7f8f8' }}>Import & Export</h1>
         <p className="text-[#95a2b3] mt-1">Import leads from XLSX/CSV or export your data</p>
       </div>
 

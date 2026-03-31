@@ -29,7 +29,7 @@ import {
   Search, ChevronLeft, ChevronRight, ExternalLink, ChevronDown, ChevronUp,
   ChevronRight as ChevronExpand, MoreHorizontal, PhoneCall, CheckCheck,
   XCircle, StickyNote, Zap, Download, X, Layers, Link2, Building2,
-  MapPin, TrendingUp, Newspaper, ArrowUpDown, Columns3, UserPlus, Sparkles,
+  MapPin, TrendingUp, Newspaper, ArrowUpDown, Columns3, UserPlus, Sparkles, Users,
 } from 'lucide-react';
 
 const PAGE_SIZE = 50;
@@ -85,6 +85,7 @@ export default function LeadsPage() {
   const [selectedIds, setSelectedIds] = useState<Set<number>>(new Set());
   const [expandedIds, setExpandedIds] = useState<Set<number>>(new Set());
   const [aiFilterLabel, setAiFilterLabel] = useState('');
+  const [stats, setStats] = useState({ total: 0, newCount: 0, qualified: 0, won: 0 });
 
   const { columnWidths, visibleColumns: storedVisibleCols, setVisibleColumns, updateColumnWidth } = useSettingsStore();
 
@@ -114,6 +115,22 @@ export default function LeadsPage() {
   useEffect(() => {
     db.team_members.toArray().then(setTeamMembers).catch(() => {});
   }, []);
+
+  // Fetch stats
+  useEffect(() => {
+    const loadStats = async () => {
+      try {
+        const all = await db.leads.toArray();
+        setStats({
+          total: all.length,
+          newCount: all.filter((l) => l.status === 'New').length,
+          qualified: all.filter((l) => l.status === 'Booked').length,
+          won: all.filter((l) => l.status === 'Existing Partner').length,
+        });
+      } catch { /* ignore */ }
+    };
+    loadStats();
+  }, [leads]); // re-run whenever leads change
 
   // Column resize
   useEffect(() => {
@@ -308,8 +325,25 @@ export default function LeadsPage() {
             />
           </div>
         );
-      case 'quality_score':
-        return <Badge className={`text-xs border font-bold ${getScoreColor(lead.quality_score)}`}>{lead.quality_score ?? 'N/A'}</Badge>;
+      case 'quality_score': {
+        const score = lead.quality_score;
+        const scoreColor = score == null ? '#5c6370' : score >= 70 ? '#00D4AA' : score >= 40 ? '#f59e0b' : '#ef4444';
+        return (
+          <div className="flex items-center gap-2">
+            <span className="text-xs font-bold tabular-nums w-7 text-right" style={{ color: scoreColor }}>
+              {score ?? '—'}
+            </span>
+            {score != null && (
+              <div className="w-10 h-1 rounded-full overflow-hidden" style={{ background: 'rgba(255,255,255,0.06)' }}>
+                <div
+                  className="h-full rounded-full"
+                  style={{ width: `${Math.min(100, score)}%`, background: scoreColor }}
+                />
+              </div>
+            )}
+          </div>
+        );
+      }
       case 'company_name':
         return (
           <div className="min-w-0">
@@ -364,25 +398,47 @@ export default function LeadsPage() {
           <span className="text-xs font-mono text-green-400">{formatPhone(phone)}</span>
         ) : <span className="text-xs text-[#95a2b3]">-</span>;
       }
-      case 'status':
+      case 'status': {
+        const statusDotColor: Record<string, string> = {
+          New: '#6b7280',
+          Contacted: '#3b82f6',
+          Booked: '#00D4AA',
+          'Bad Fit': '#ef4444',
+          'Not Interested': '#f97316',
+          'Low Interest': '#f59e0b',
+          'Existing Partner': '#a855f7',
+        };
+        const dotColor = statusDotColor[lead.status ?? 'New'] ?? '#6b7280';
         return (
           <div onClick={(e) => e.stopPropagation()}>
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
-                <button className="flex items-center">
-                  <Badge className={`text-xs border cursor-pointer hover:opacity-80 ${getStatusColor(lead.status)}`}>
-                    {lead.status} <ChevronDown className="w-3 h-3 ml-1" />
-                  </Badge>
+                <button className="flex items-center gap-1.5 group">
+                  <span
+                    className="w-1.5 h-1.5 rounded-full shrink-0"
+                    style={{ background: dotColor }}
+                  />
+                  <span className="text-xs font-medium" style={{ color: '#95a2b3' }}>
+                    {lead.status}
+                  </span>
+                  <ChevronDown className="w-3 h-3 opacity-0 group-hover:opacity-50 transition-opacity" style={{ color: '#5c6370' }} />
                 </button>
               </DropdownMenuTrigger>
               <DropdownMenuContent>
                 {ALL_STATUSES.map((s) => (
-                  <DropdownMenuItem key={s} onClick={() => handleStatusChange(lead.id!, s)}>{s}</DropdownMenuItem>
+                  <DropdownMenuItem key={s} onClick={() => handleStatusChange(lead.id!, s)}>
+                    <span
+                      className="w-1.5 h-1.5 rounded-full mr-2 shrink-0"
+                      style={{ background: statusDotColor[s] ?? '#6b7280' }}
+                    />
+                    {s}
+                  </DropdownMenuItem>
                 ))}
               </DropdownMenuContent>
             </DropdownMenu>
           </div>
         );
+      }
       case 'assigned_to':
         return (
           <div onClick={(e) => e.stopPropagation()}>
@@ -581,11 +637,22 @@ export default function LeadsPage() {
   const SORTABLE = ['quality_score', 'company_name', 'state', 'created_at'];
 
   return (
-    <div className="space-y-4">
+    <div className="space-y-5">
+      {/* ── Page header ─────────────────────────────── */}
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-3xl font-bold text-[#f7f8f8]">Leads</h1>
-          <p className="text-[#95a2b3] mt-1">{total.toLocaleString()} total leads</p>
+          <div className="flex items-center gap-3">
+            <h1 className="text-xl font-bold tracking-tight" style={{ color: '#f7f8f8' }}>Leads</h1>
+            <span
+              className="text-xs font-semibold px-2 py-0.5 rounded-full"
+              style={{ background: 'rgba(108,99,255,0.15)', color: '#a09dff' }}
+            >
+              {total.toLocaleString()}
+            </span>
+          </div>
+          <p className="text-[13px] mt-0.5" style={{ color: '#5c6370' }}>
+            Insurance leads — enriched &amp; ready to contact
+          </p>
         </div>
         <div className="flex items-center gap-2">
           <DropdownMenu>
@@ -607,7 +674,35 @@ export default function LeadsPage() {
         </div>
       </div>
 
-      {/* Filters */}
+      {/* ── Stats bar ───────────────────────────────── */}
+      <div className="grid grid-cols-4 gap-3">
+        {[
+          { label: 'Total Leads', value: stats.total, color: '#6C63FF', border: 'rgba(108,99,255,0.5)' },
+          { label: 'New', value: stats.newCount, color: '#95a2b3', border: 'rgba(149,162,179,0.4)' },
+          { label: 'Qualified', value: stats.qualified, color: '#00D4AA', border: 'rgba(0,212,170,0.5)' },
+          { label: 'Partners', value: stats.won, color: '#a855f7', border: 'rgba(168,85,247,0.5)' },
+        ].map((stat) => (
+          <div
+            key={stat.label}
+            className="rounded-xl p-4 relative overflow-hidden"
+            style={{
+              background: '#0f0f14',
+              border: '1px solid #1f1f2e',
+              borderLeftColor: stat.border,
+              borderLeftWidth: '3px',
+            }}
+          >
+            <p className="text-[11px] font-medium uppercase tracking-wide" style={{ color: '#5c6370' }}>
+              {stat.label}
+            </p>
+            <p className="text-2xl font-bold mt-1 tabular-nums" style={{ color: stat.color }}>
+              {stat.value.toLocaleString()}
+            </p>
+          </div>
+        ))}
+      </div>
+
+      {/* ── Filters ─────────────────────────────────── */}
       <Card>
         <CardContent className="p-4">
           <div className="flex flex-wrap gap-3 items-center">
@@ -654,11 +749,11 @@ export default function LeadsPage() {
         </CardContent>
       </Card>
 
-      {/* Table */}
-      <div className="rounded-lg border border-[#1f1f2e] overflow-hidden">
+      {/* ── Table ───────────────────────────────────── */}
+      <div className="rounded-xl overflow-hidden" style={{ border: '1px solid #1f1f2e' }}>
         <div className="overflow-x-auto">
-          <table className="text-sm" style={{ minWidth: '100%' }}>
-            <thead className="bg-[#1a1a24]/50 border-b border-[#1f1f2e]">
+          <table className="leads-table" style={{ minWidth: '100%' }}>
+            <thead>
               <tr>
                 {activeColumns.map((col) => {
                   const isSortable = SORTABLE.includes(col.key);
@@ -666,7 +761,7 @@ export default function LeadsPage() {
                   const w = effectiveWidths(col);
                   return (
                     <th key={col.key}
-                      className={`p-3 text-left font-medium text-[#95a2b3] relative select-none ${isSortable ? 'cursor-pointer hover:text-[#f7f8f8]' : ''}`}
+                      className={`relative select-none ${isSortable ? 'cursor-pointer' : ''}`}
                       style={{ width: `${w}px`, minWidth: `${w}px` }}
                       onClick={() => isSortable && handleSort(col.key)}>
                       <div className="flex items-center gap-1">
@@ -678,12 +773,16 @@ export default function LeadsPage() {
                               else setSelectedIds(new Set(leads.map((l) => l.id!)));
                             }}
                           />
-                        ) : <span className="truncate">{col.label}</span>}
-                        {isSortable && isSorted && (sortDir === 'asc' ? <ChevronUp className="w-3 h-3" /> : <ChevronDown className="w-3 h-3" />)}
-                        {isSortable && !isSorted && <ArrowUpDown className="w-3 h-3 opacity-30" />}
+                        ) : (
+                          <span className="truncate" style={isSortable && isSorted ? { color: '#f7f8f8' } : undefined}>
+                            {col.label}
+                          </span>
+                        )}
+                        {isSortable && isSorted && (sortDir === 'asc' ? <ChevronUp className="w-3 h-3" style={{ color: '#6C63FF' }} /> : <ChevronDown className="w-3 h-3" style={{ color: '#6C63FF' }} />)}
+                        {isSortable && !isSorted && <ArrowUpDown className="w-3 h-3 opacity-20" />}
                       </div>
                       {col.key !== 'select' && col.key !== 'actions' && (
-                        <div className="absolute right-0 top-0 bottom-0 w-1 cursor-col-resize hover:bg-[#6C63FF]/50"
+                        <div className="absolute right-0 top-0 bottom-0 w-1 cursor-col-resize hover:bg-[#6C63FF]/40"
                           onMouseDown={(e) => handleResizeStart(col.key, e)} />
                       )}
                     </th>
@@ -693,17 +792,52 @@ export default function LeadsPage() {
             </thead>
             <tbody>
               {loading ? (
-                <tr><td colSpan={activeColumns.length} className="p-8 text-center text-[#95a2b3]">Loading leads...</td></tr>
+                <tr>
+                  <td colSpan={activeColumns.length} className="p-12 text-center" style={{ color: '#5c6370' }}>
+                    <div className="flex flex-col items-center gap-2">
+                      <div className="w-5 h-5 rounded-full border-2 border-t-[#6C63FF] animate-spin" style={{ borderColor: '#2a2a3e', borderTopColor: '#6C63FF' }} />
+                      <span className="text-sm">Loading leads…</span>
+                    </div>
+                  </td>
+                </tr>
               ) : leads.length === 0 ? (
-                <tr><td colSpan={activeColumns.length} className="p-8 text-center text-[#95a2b3]">
-                  {hasFilters ? 'No leads match your filters.' : 'No leads yet. Import some to get started.'}
-                </td></tr>
+                <tr>
+                  <td colSpan={activeColumns.length} className="p-14 text-center">
+                    <div className="flex flex-col items-center gap-2">
+                      <div className="w-10 h-10 rounded-xl flex items-center justify-center mb-1" style={{ background: 'rgba(108,99,255,0.1)' }}>
+                        <Users className="w-5 h-5" style={{ color: '#6C63FF' }} />
+                      </div>
+                      <p className="text-sm font-medium" style={{ color: '#95a2b3' }}>
+                        {hasFilters ? 'No leads match your filters' : 'No leads yet'}
+                      </p>
+                      <p className="text-xs" style={{ color: '#5c6370' }}>
+                        {hasFilters ? 'Try adjusting or clearing your filters.' : 'Import a CSV or add leads manually to get started.'}
+                      </p>
+                    </div>
+                  </td>
+                </tr>
               ) : leads.flatMap((lead) => {
                 const isExpanded = expandedIds.has(lead.id!);
                 const isSelected = selectedIds.has(lead.id!);
                 const row = (
                   <tr key={`row-${lead.id}`}
-                    className={`border-b border-[#1f1f2e]/50 hover:bg-[#1a1a24]/30 cursor-pointer transition-colors ${isSelected ? 'bg-[#6C63FF]/5' : ''} ${isExpanded ? 'bg-[#1a1a24]/20' : ''}`}
+                    className={`cursor-pointer transition-colors duration-75 leads-table-row ${isSelected ? 'is-selected' : ''}`}
+                    style={{
+                      borderBottom: '1px solid rgba(31,31,46,0.6)',
+                      background: isSelected
+                        ? 'rgba(108,99,255,0.05)'
+                        : isExpanded
+                        ? '#141419'
+                        : undefined,
+                    }}
+                    onMouseEnter={e => {
+                      if (!isSelected && !isExpanded)
+                        (e.currentTarget as HTMLTableRowElement).style.background = '#141419';
+                    }}
+                    onMouseLeave={e => {
+                      if (!isSelected && !isExpanded)
+                        (e.currentTarget as HTMLTableRowElement).style.background = '';
+                    }}
                     onClick={() => {
                       setExpandedIds((prev) => {
                         const n = new Set(prev);

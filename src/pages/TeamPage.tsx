@@ -85,7 +85,7 @@ export default function TeamPage() {
     <div className="space-y-6 max-w-4xl">
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-3xl font-bold text-[#f7f8f8]">Team</h1>
+          <h1 className="text-xl font-bold tracking-tight" style={{ color: '#f7f8f8' }}>Team</h1>
           <p className="text-[#95a2b3] mt-1">Manage team members and lead assignments</p>
         </div>
         <Button onClick={openAdd}>

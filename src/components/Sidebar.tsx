@@ -82,39 +82,68 @@ function JarvisPanel({ onClose }: { onClose: () => void }) {
   };
 
   return (
-    <div className="fixed bottom-0 left-64 z-50 w-96 flex flex-col rounded-t-xl border border-[#1f1f2e] bg-[#0f0f14] shadow-2xl" style={{ height: '480px' }}>
-      <div className="flex items-center justify-between px-4 py-3 border-b border-[#1f1f2e]">
+    <div
+      className="fixed bottom-0 left-64 z-50 w-96 flex flex-col shadow-2xl"
+      style={{
+        height: '480px',
+        background: '#0f0f14',
+        border: '1px solid #1f1f2e',
+        borderBottom: 'none',
+        borderRadius: '12px 12px 0 0',
+      }}
+    >
+      {/* Header */}
+      <div className="flex items-center justify-between px-4 py-3" style={{ borderBottom: '1px solid #1f1f2e' }}>
         <div className="flex items-center gap-2">
-          <Sparkles className="w-4 h-4 text-[#6C63FF]" />
-          <span className="text-sm font-semibold">Jarvis AI</span>
+          <div className="w-6 h-6 rounded-md flex items-center justify-center" style={{ background: 'rgba(108,99,255,0.15)' }}>
+            <Sparkles className="w-3.5 h-3.5" style={{ color: '#6C63FF' }} />
+          </div>
+          <span className="text-sm font-semibold" style={{ color: '#f7f8f8' }}>Jarvis AI</span>
         </div>
-        <button onClick={onClose} className="p-1 rounded hover:bg-[#1a1a24] text-[#95a2b3]">
-          <X className="w-4 h-4" />
+        <button
+          onClick={onClose}
+          className="w-6 h-6 rounded flex items-center justify-center transition-colors"
+          style={{ color: '#5c6370' }}
+          onMouseEnter={e => (e.currentTarget.style.color = '#95a2b3')}
+          onMouseLeave={e => (e.currentTarget.style.color = '#5c6370')}
+        >
+          <X className="w-3.5 h-3.5" />
         </button>
       </div>
+
+      {/* Messages */}
       <div className="flex-1 overflow-y-auto p-4 space-y-3">
         {messages.length === 0 && (
-          <div className="text-center text-[#95a2b3] text-xs space-y-1 pt-8">
-            <p className="font-medium">Hi! I'm Jarvis.</p>
-            <p>Ask me anything about your leads, prospecting, or CRM strategies.</p>
+          <div className="text-center space-y-1 pt-10">
+            <p className="text-sm font-medium" style={{ color: '#95a2b3' }}>Hi, I'm Jarvis.</p>
+            <p className="text-xs" style={{ color: '#5c6370' }}>Ask me about your leads, prospecting,<br />or CRM strategies.</p>
           </div>
         )}
         {messages.map((m, i) => (
           <div key={i} className={`flex ${m.role === 'user' ? 'justify-end' : 'justify-start'}`}>
-            <div className={`max-w-[85%] rounded-lg px-3 py-2 text-sm ${m.role === 'user' ? 'bg-[#6C63FF] text-white' : 'bg-[#1a1a24] text-[#f7f8f8]'}`}>
+            <div
+              className="max-w-[85%] rounded-xl px-3 py-2 text-sm"
+              style={
+                m.role === 'user'
+                  ? { background: '#6C63FF', color: '#fff' }
+                  : { background: '#1a1a26', color: '#e8eaed' }
+              }
+            >
               {m.content}
             </div>
           </div>
         ))}
         {loading && (
           <div className="flex justify-start">
-            <div className="bg-[#1a1a24] rounded-lg px-3 py-2">
-              <Loader2 className="w-4 h-4 animate-spin text-[#95a2b3]" />
+            <div className="rounded-xl px-3 py-2" style={{ background: '#1a1a26' }}>
+              <Loader2 className="w-4 h-4 animate-spin" style={{ color: '#5c6370' }} />
             </div>
           </div>
         )}
       </div>
-      <div className="p-3 border-t border-[#1f1f2e]">
+
+      {/* Input */}
+      <div className="p-3" style={{ borderTop: '1px solid #1f1f2e' }}>
         <div className="flex gap-2">
           <Input
             value={input}
@@ -138,34 +167,64 @@ export function Sidebar() {
 
   return (
     <>
-      <aside className="fixed left-0 top-0 h-full w-64 bg-[#0f0f14] border-r border-[#1f1f2e] flex flex-col z-50">
-        {/* Logo */}
-        <div className="flex items-center gap-3 px-6 py-5 border-b border-[#1f1f2e]">
-          <div className="flex items-center justify-center w-9 h-9 rounded-lg bg-[#6C63FF]/20">
-            <Dog className="w-5 h-5 text-[#6C63FF]" />
+      <aside
+        className="fixed left-0 top-0 h-full w-64 flex flex-col z-50"
+        style={{
+          background: '#0E0E14',
+          borderRight: '1px solid #1a1a24',
+        }}
+      >
+        {/* ── Logo ───────────────────────────────────── */}
+        <div
+          className="flex items-center gap-3 px-5 py-5"
+          style={{ borderBottom: '1px solid #1a1a24' }}
+        >
+          <div
+            className="flex items-center justify-center w-8 h-8 rounded-lg shrink-0"
+            style={{ background: 'rgba(108,99,255,0.15)' }}
+          >
+            <Dog className="w-4 h-4" style={{ color: '#6C63FF' }} />
           </div>
-          <div>
-            <div className="text-sm font-bold text-[#f7f8f8]">Corgi</div>
-            <div className="text-xs text-[#95a2b3]">Enrichment Tool</div>
+          <div className="min-w-0">
+            <div className="text-sm font-bold tracking-tight" style={{ color: '#f7f8f8' }}>
+              Corgi
+            </div>
+            <div className="text-[11px]" style={{ color: '#5c6370' }}>
+              Enrichment
+            </div>
           </div>
         </div>
 
-        {/* Nav Items */}
-        <nav className="flex-1 px-3 py-4 space-y-1">
-          {/* Jarvis item */}
+        {/* ── Nav ────────────────────────────────────── */}
+        <nav className="flex-1 py-3 overflow-y-auto">
+          {/* Jarvis button */}
           <button
             onClick={() => setJarvisOpen((v) => !v)}
             className={cn(
-              'w-full flex items-center gap-3 px-3 py-2.5 rounded-md text-sm font-medium transition-colors',
+              'w-full flex items-center gap-3 py-2.5 pr-4 pl-5 text-sm font-medium',
+              'transition-colors duration-100 relative border-l-2',
               jarvisOpen
-                ? 'bg-[#6C63FF]/10 text-[#6C63FF]'
-                : 'text-[#95a2b3] hover:bg-[#1a1a24] hover:text-[#f7f8f8]'
+                ? 'border-[#6C63FF] text-[#f7f8f8]'
+                : 'border-transparent text-[#5c6370] hover:text-[#c0c9d5]'
             )}
+            style={jarvisOpen ? { background: 'rgba(108,99,255,0.06)' } : undefined}
           >
-            <MessageCircle className="w-4 h-4 shrink-0" />
-            Jarvis
+            <MessageCircle className="w-[15px] h-[15px] shrink-0" />
+            <span>Jarvis</span>
+            {jarvisOpen && (
+              <span
+                className="ml-auto text-[10px] font-semibold px-1.5 py-0.5 rounded"
+                style={{ background: 'rgba(108,99,255,0.2)', color: '#a09dff' }}
+              >
+                AI
+              </span>
+            )}
           </button>
 
+          {/* Separator */}
+          <div className="mx-4 my-2" style={{ height: '1px', background: '#1a1a24' }} />
+
+          {/* Route nav items */}
           {navItems.map((item) => {
             const Icon = item.icon;
             return (
@@ -174,24 +233,30 @@ export function Sidebar() {
                 to={item.href}
                 className={({ isActive }) =>
                   cn(
-                    'flex items-center gap-3 px-3 py-2.5 rounded-md text-sm font-medium transition-colors',
+                    'flex items-center gap-3 py-2.5 pr-4 pl-5 text-sm font-medium',
+                    'transition-colors duration-100 border-l-2',
                     isActive
-                      ? 'bg-[#6C63FF]/10 text-[#6C63FF]'
-                      : 'text-[#95a2b3] hover:bg-[#1a1a24] hover:text-[#f7f8f8]'
+                      ? 'border-[#6C63FF] text-[#f7f8f8]'
+                      : 'border-transparent text-[#5c6370] hover:text-[#c0c9d5]'
                   )
                 }
+                style={({ isActive }) =>
+                  isActive ? { background: 'rgba(108,99,255,0.06)' } : undefined
+                }
               >
-                <Icon className="w-4 h-4 shrink-0" />
+                <Icon className="w-[15px] h-[15px] shrink-0" />
                 {item.label}
               </NavLink>
             );
           })}
         </nav>
 
-        {/* Footer */}
-        <div className="px-6 py-4 border-t border-[#1f1f2e]">
-          <p className="text-xs text-[#95a2b3]">Corgi Insurance Enrichment</p>
-          <p className="text-xs text-[#5c6370]">v2.0.0</p>
+        {/* ── Footer ─────────────────────────────────── */}
+        <div className="px-5 py-4" style={{ borderTop: '1px solid #1a1a24' }}>
+          <p className="text-[11px] font-medium" style={{ color: '#3a3a50' }}>
+            Corgi Insurance Enrichment
+          </p>
+          <p className="text-[11px] mt-0.5" style={{ color: '#2e2e42' }}>v2.0.0</p>
         </div>
       </aside>
 

@@ -110,7 +110,7 @@ export default function LeadDetailPage() {
             <ArrowLeft className="w-5 h-5" />
           </Link>
           <div>
-            <h1 className="text-3xl font-bold text-[#f7f8f8]">{lead.company_name}</h1>
+            <h1 className="text-xl font-bold tracking-tight" style={{ color: '#f7f8f8' }}>{lead.company_name}</h1>
             <div className="flex items-center gap-3 mt-2 flex-wrap">
               <Badge className={`text-sm border ${getStatusColor(lead.status)}`}>{lead.status}</Badge>
               {lead.quality_score != null && (

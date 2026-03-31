@@ -167,7 +167,7 @@ export default function DealFlowPage() {
   return (
     <div className="space-y-6 max-w-4xl">
       <div>
-        <h1 className="text-3xl font-bold text-[#f7f8f8]">DealFlow Integration</h1>
+        <h1 className="text-xl font-bold tracking-tight" style={{ color: '#f7f8f8' }}>DealFlow Integration</h1>
         <p className="text-[#95a2b3] mt-1">Pull data from DealFlow or upload files directly</p>
       </div>
 

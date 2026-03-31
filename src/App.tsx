@@ -15,7 +15,7 @@ export default function App() {
     <BrowserRouter>
       <div className="min-h-screen bg-[#09090b] text-[#f7f8f8]">
         <Sidebar />
-        <main className="ml-64 p-8">
+        <main className="ml-64 p-6 min-h-screen">
           <Routes>
             <Route path="/" element={<Navigate to="/leads" replace />} />
             <Route path="/leads" element={<LeadsPage />} />
