@@ -114,6 +114,14 @@ export interface CallSheetEntry {
   added_at: string;
 }
 
+export interface ChatMessage {
+  id?: number;
+  role: 'user' | 'assistant' | 'system';
+  content: string;
+  created_at: string;
+  metadata?: Record<string, unknown>;
+}
+
 // ─── Timezone derivation ────────────────────────────────────────────────────
 
 const PST_STATES = new Set(['CA', 'WA', 'OR', 'NV', 'AK', 'HI']);
@@ -170,6 +178,7 @@ class CorgiDB extends Dexie {
   lead_assignments!: Table<LeadAssignment>;
   enrichment_log!: Table<EnrichmentLog>;
   call_sheet!: Table<CallSheetEntry>;
+  chat_messages!: Table<ChatMessage>;
 
   constructor() {
     super('corgi-enrichment-db');
@@ -191,6 +200,15 @@ class CorgiDB extends Dexie {
       enrichment_log: '++id, entity_id, source, created_at',
       companies: '++id, dealflow_id, company_name, industry, geography, status, revenue, employees, timezone, updated_at',
       call_sheet: '++id, company_id, called, added_at',
+    });
+    this.version(4).stores({
+      leads: '++id, company_name, state, industry, status, quality_score, created_at',
+      team_members: '++id, name, email',
+      lead_assignments: '++id, lead_id, team_member_id',
+      enrichment_log: '++id, entity_id, source, created_at',
+      companies: '++id, dealflow_id, company_name, industry, geography, status, revenue, employees, timezone, updated_at',
+      call_sheet: '++id, company_id, called, added_at',
+      chat_messages: '++id, role, created_at',
     });
   }
 }

@@ -10,6 +10,8 @@ import { startDealFlowSync } from '../lib/sync';
 
 // ─── Design tokens ───────────────────────────────────────────────────────────
 
+const PAGE_SIZE = 100;
+
 const STRIPE = {
   bg: '#F6F9FC',
   card: '#FFFFFF',
@@ -211,6 +213,7 @@ export default function LeadsPage() {
   const [filterTimezone, setFilterTimezone] = useState('');
   const [sortKey, setSortKey]           = useState('company_name');
   const [sortDir, setSortDir]           = useState<SortDir>('asc');
+  const [page, setPage]                 = useState(1);
   const [syncing, setSyncing]           = useState(false);
   const [syncProgress, setSyncProgress] = useState(0);
   const [syncTotal, setSyncTotal]       = useState(0);
@@ -232,6 +235,7 @@ export default function LeadsPage() {
   }, []);
 
   useEffect(() => { loadCompanies(); }, [loadCompanies]);
+  useEffect(() => { setPage(1); }, [search, filterIndustry, filterGeo, filterStatus, filterTimezone]);
 
   // ── Close column picker on outside click ──────────────────────────────────
 
@@ -664,12 +668,12 @@ export default function LeadsPage() {
                 </tr>
               </thead>
               <tbody>
-                {filtered.map((c, i) => (
+                {filtered.slice(0, PAGE_SIZE * page).map((c, i) => (
                   <tr
                     key={c.id}
                     onClick={() => navigate(`/leads/${c.id}`)}
                     style={{
-                      borderBottom: i < filtered.length - 1 ? `1px solid ${STRIPE.border}` : 'none',
+                      borderBottom: `1px solid ${STRIPE.border}`,
                       cursor: 'pointer', transition: 'background 0.1s',
                     }}
                     onMouseEnter={e => (e.currentTarget.style.background = STRIPE.tableRowHover)}
@@ -684,18 +688,31 @@ export default function LeadsPage() {
             </table>
           </div>
 
-          {/* Result count / empty-filter state */}
+          {/* Result count + Load More */}
           <div style={{
             padding: '10px 18px', borderTop: `1px solid ${STRIPE.border}`,
             fontSize: 12, color: STRIPE.textMuted,
             display: 'flex', alignItems: 'center', justifyContent: 'space-between',
           }}>
             <span>
+              Showing {Math.min(PAGE_SIZE * page, filtered.length).toLocaleString()} of{' '}
               {filtered.length === companies.length
                 ? `${companies.length.toLocaleString()} companies`
-                : `${filtered.length.toLocaleString()} of ${companies.length.toLocaleString()} companies`
+                : `${filtered.length.toLocaleString()} (${companies.length.toLocaleString()} total)`
               }
             </span>
+            {PAGE_SIZE * page < filtered.length && (
+              <button
+                onClick={() => setPage(p => p + 1)}
+                style={{
+                  background: STRIPE.primary, color: '#fff', border: 'none',
+                  padding: '6px 16px', borderRadius: 6, fontSize: 12, fontWeight: 600,
+                  cursor: 'pointer',
+                }}
+              >
+                Load More ({(filtered.length - PAGE_SIZE * page).toLocaleString()} remaining)
+              </button>
+            )}
             {filtered.length === 0 && companies.length > 0 && (
               <span style={{ color: STRIPE.textMuted }}>No companies match your filters.</span>
             )}
