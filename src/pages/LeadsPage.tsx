@@ -42,6 +42,7 @@ const ALL_COLUMNS: ColDef[] = [
   { key: 'geography',          label: 'State/Country',  default: true,  width: 130 },
   { key: 'industry',           label: 'Industry',       default: true,  width: 160 },
   { key: 'nace',               label: 'NACE Code',      default: false, width: 100 },
+  { key: 'sic_code',           label: 'SIC Code',       default: false, width: 100 },
   { key: 'employees',          label: 'Employees',      default: true,  width: 100, format: 'number' },
   { key: 'revenue',            label: 'Revenue',        default: true,  width: 120, format: 'currency' },
   { key: 'profit_before_tax',  label: 'P/L Before Tax', default: true,  width: 130, format: 'currency' },
@@ -302,9 +303,40 @@ export default function LeadsPage() {
   const colPickerRef = useRef<HTMLDivElement>(null);
   const resizingRef  = useRef<{ col: string; startX: number; startWidth: number } | null>(null);
 
-  // Derive active columns
+  // Derive active columns, respecting custom order
   const activeCols = visibleColumns.length > 0 ? visibleColumns : DEFAULT_COL_KEYS;
-  const visibleColDefs = ALL_COLUMNS.filter(c => activeCols.includes(c.key));
+  const { columnOrder, setColumnOrder } = useSettingsStore();
+  const visibleColDefs = useMemo(() => {
+    const cols = ALL_COLUMNS.filter(c => activeCols.includes(c.key));
+    if (columnOrder.length > 0) {
+      const orderMap = new Map(columnOrder.map((k, i) => [k, i]));
+      cols.sort((a, b) => {
+        const ai = orderMap.get(a.key) ?? 999;
+        const bi = orderMap.get(b.key) ?? 999;
+        return ai - bi;
+      });
+    }
+    return cols;
+  }, [activeCols, columnOrder]);
+
+  // Drag-to-reorder state
+  const [dragCol, setDragCol] = useState<string | null>(null);
+  const [dragOverCol, setDragOverCol] = useState<string | null>(null);
+
+  const handleDragStart = (key: string) => { setDragCol(key); };
+  const handleDragOver = (e: React.DragEvent, key: string) => { e.preventDefault(); setDragOverCol(key); };
+  const handleDrop = (targetKey: string) => {
+    if (!dragCol || dragCol === targetKey) { setDragCol(null); setDragOverCol(null); return; }
+    const order = visibleColDefs.map(c => c.key);
+    const fromIdx = order.indexOf(dragCol);
+    const toIdx = order.indexOf(targetKey);
+    if (fromIdx < 0 || toIdx < 0) return;
+    order.splice(fromIdx, 1);
+    order.splice(toIdx, 0, dragCol);
+    setColumnOrder(order);
+    setDragCol(null);
+    setDragOverCol(null);
+  };
 
   // ── Load ──────────────────────────────────────────────────────────────────
 
@@ -712,14 +744,22 @@ export default function LeadsPage() {
                 <tr style={{ background: STRIPE.tableHeaderBg, borderBottom: `1px solid ${STRIPE.border}` }}>
                   {visibleColDefs.map(col => {
                     const colWidth = columnWidths[col.key] || col.width;
+                    const isDragTarget = dragOverCol === col.key && dragCol !== col.key;
                     return (
                       <th
                         key={col.key}
+                        draggable
+                        onDragStart={() => handleDragStart(col.key)}
+                        onDragOver={(e) => handleDragOver(e, col.key)}
+                        onDrop={() => handleDrop(col.key)}
+                        onDragEnd={() => { setDragCol(null); setDragOverCol(null); }}
                         onClick={() => handleSort(col.key)}
                         style={{
                           padding: '10px 16px 10px 16px', textAlign: 'left',
                           fontSize: 11, fontWeight: 700, color: STRIPE.textMuted,
-                          cursor: 'pointer', userSelect: 'none', whiteSpace: 'nowrap',
+                          cursor: 'grab', userSelect: 'none', whiteSpace: 'nowrap',
+                          borderLeft: isDragTarget ? `2px solid ${STRIPE.primary}` : 'none',
+                          opacity: dragCol === col.key ? 0.5 : 1,
                           letterSpacing: '0.05em', textTransform: 'uppercase',
                           position: 'relative', overflow: 'hidden',
                         }}

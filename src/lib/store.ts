@@ -12,6 +12,7 @@ interface SettingsState {
   lastSyncCount?: number;
   // Display
   columnWidths: Record<string, number>;
+  columnOrder: string[];
   visibleColumns: string[];
   // AI integrations
   openaiKey: string;
@@ -23,6 +24,7 @@ interface SettingsState {
   setLastSync: (time: string, count: number) => void;
   setColumnWidths: (widths: Record<string, number>) => void;
   setVisibleColumns: (cols: string[]) => void;
+  setColumnOrder: (order: string[]) => void;
   updateColumnWidth: (col: string, width: number) => void;
   setOpenaiKey: (key: string) => void;
   setApolloApiKey: (key: string) => void;
@@ -37,6 +39,7 @@ export const useSettingsStore = create<SettingsState>()(
       lastSyncTime: undefined,
       lastSyncCount: undefined,
       columnWidths: {},
+      columnOrder: [],
       visibleColumns: [],
       openaiKey: DEFAULT_OPENAI_KEY,
       apolloApiKey: 'p_k86JQdDzCm5G3aZqH6zg',
@@ -46,6 +49,7 @@ export const useSettingsStore = create<SettingsState>()(
       setLastSync: (time, count) => set({ lastSyncTime: time, lastSyncCount: count }),
       setColumnWidths: (widths) => set({ columnWidths: widths }),
       setVisibleColumns: (cols) => set({ visibleColumns: cols }),
+      setColumnOrder: (order) => set({ columnOrder: order }),
       updateColumnWidth: (col, width) =>
         set((state) => ({
           columnWidths: { ...state.columnWidths, [col]: width },
