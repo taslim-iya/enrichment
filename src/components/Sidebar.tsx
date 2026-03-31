@@ -12,7 +12,7 @@ import {
 } from 'lucide-react';
 
 const NAV_ITEMS = [
-  { label: 'Jarvis Chat', icon: MessageCircle, path: '/chat' },
+  { label: 'Jarvis Chat', icon: MessageCircle, path: '/jarvis' },
   { label: 'Companies', icon: Building2, path: '/leads' },
   { label: 'Call Sheet', icon: PhoneCall, path: '/call-sheet' },
   { label: 'Enrichment', icon: Zap, path: '/enrichment' },
@@ -61,8 +61,10 @@ export function Sidebar() {
       {/* Nav items */}
       <div style={{ padding: '12px 8px', flex: 1 }}>
         {NAV_ITEMS.map((item) => {
-          const isActive = location.pathname === item.path ||
-            (item.path === '/leads' && location.pathname.startsWith('/leads'));
+          const isActive =
+            location.pathname === item.path ||
+            (item.path === '/leads' && location.pathname.startsWith('/leads')) ||
+            (item.path === '/jarvis' && location.pathname === '/chat');
           const Icon = item.icon;
 
           return (
