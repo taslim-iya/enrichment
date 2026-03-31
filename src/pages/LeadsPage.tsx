@@ -408,7 +408,7 @@ export default function LeadsPage() {
       setAssignments(assigns.map(a => ({ lead_id: a.lead_id, team_member_id: a.team_member_id })));
     })();
   }, []);
-  useEffect(() => { setPage(1); }, [search, filterIndustry, filterGeo, filterStatus, filterTimezone, filterTeamMember]);
+  useEffect(() => { setPage(1); }, [search, filterIndustry, filterGeo, filterStatus, filterTimezone, filterTeamMember, sortKey, sortDir]);
 
   // ── Close column picker on outside click ──────────────────────────────────
 
@@ -502,7 +502,7 @@ export default function LeadsPage() {
       });
     }
     return list;
-  }, [companies, search, filterIndustry, filterGeo, filterStatus, filterTimezone, sortKey, sortDir]);
+  }, [companies, search, filterIndustry, filterGeo, filterStatus, filterTimezone, filterTeamMember, assignments, sortKey, sortDir]);
 
   // ── Handlers ──────────────────────────────────────────────────────────────
 
