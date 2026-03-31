@@ -366,6 +366,65 @@ export default function EnrichmentPage() {
     }
   }
 
+  // ── Director Contact Enrichment ──────────────────────────────────────────
+
+  const [directorEnrichRunning, setDirectorEnrichRunning] = useState(false);
+  const [directorEnrichProgress, setDirectorEnrichProgress] = useState<{ value: number; total: number } | null>(null);
+  const [directorEnrichResult, setDirectorEnrichResult] = useState<string | null>(null);
+
+  async function runDirectorEnrichment() {
+    if (!apolloApiKey) { setApolloPeopleWarning('Apollo API key not configured.'); return; }
+    setDirectorEnrichRunning(true);
+    setDirectorEnrichProgress(null);
+    setDirectorEnrichResult(null);
+    try {
+      const all = await db.companies.toArray();
+      // Find companies with directors missing email/phone
+      const needsEnrich = all.filter(c =>
+        c.directors?.some(d => d.name && (!d.email || !d.phone))
+      );
+      const total = Math.min(needsEnrich.length, 50);
+      setDirectorEnrichProgress({ value: 0, total });
+      let directorsEnriched = 0;
+
+      for (let i = 0; i < total; i++) {
+        const company = needsEnrich[i];
+        const domain = company.website?.replace(/^https?:\/\/(www\.)?/, '').replace(/\/.*$/, '') || '';
+        const dirs = [...(company.directors || [])];
+        let updated = false;
+
+        for (let j = 0; j < dirs.length; j++) {
+          const d = dirs[j];
+          if (!d.name || (d.email && d.phone)) continue;
+          try {
+            const params = new URLSearchParams({ api_key: apolloApiKey });
+            const parts = d.name.trim().split(/\s+/);
+            if (parts.length >= 2) { params.set('first_name', parts[0]); params.set('last_name', parts.slice(1).join(' ')); }
+            else params.set('first_name', parts[0]);
+            if (domain) params.set('organization_domain', domain);
+            if (company.company_name) params.set('organization_name', company.company_name);
+
+            const resp = await fetch(`https://api.apollo.io/api/v1/people/match?${params.toString()}`);
+            if (resp.ok) {
+              const data = await resp.json();
+              const person = data.person || data;
+              if (person.email) dirs[j] = { ...dirs[j], email: person.email };
+              if (person.phone_numbers?.[0]?.sanitized_number) dirs[j] = { ...dirs[j], phone: person.phone_numbers[0].sanitized_number };
+              if (person.linkedin_url) dirs[j] = { ...dirs[j], linkedin_url: person.linkedin_url };
+              if (person.title) dirs[j] = { ...dirs[j], title: person.title };
+              updated = true;
+              directorsEnriched++;
+            }
+            await new Promise(r => setTimeout(r, 1000)); // rate limit per director
+          } catch { /* skip */ }
+        }
+        if (updated && company.id) await db.companies.update(company.id, { directors: dirs });
+        setDirectorEnrichProgress({ value: i + 1, total });
+      }
+      setDirectorEnrichResult(`Enriched ${directorsEnriched} directors across ${total} companies`);
+    } finally { setDirectorEnrichRunning(false); }
+  }
+
   // ── Apollo Company Enrichment ─────────────────────────────────────────────
 
   async function runApolloCompanyEnrichment() {
@@ -960,6 +1019,19 @@ export default function EnrichmentPage() {
         result={apolloPeopleResult}
         warning={apolloPeopleWarning}
         onRun={runApolloPeopleEnrichment}
+      />
+
+      {/* ── Card 3b: Director Enrichment ─────────────────────── */}
+      <EnrichmentCard
+        icon={<Users size={20} color="#7C3AED" />}
+        iconBg="#F5F3FF"
+        title="Enrich Director Contact Details"
+        description="Find email, phone, and LinkedIn for directors using Apollo. Also available per-person on each company detail page."
+        running={directorEnrichRunning}
+        progress={directorEnrichProgress}
+        result={directorEnrichResult}
+        warning={null}
+        onRun={runDirectorEnrichment}
       />
 
       {/* ── Card 4: Apollo Company ───────────────────────────── */}

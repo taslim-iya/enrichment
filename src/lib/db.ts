@@ -23,7 +23,7 @@ export interface Company {
   status?: string;
   score?: number;
   source?: string;
-  directors?: { name: string; title: string }[];
+  directors?: { name: string; title: string; email?: string; phone?: string; linkedin_url?: string }[];
   contacts?: { name: string; title: string; email?: string; phone?: string; linkedin_url?: string }[];
   qualification_score?: number;
   timezone?: string;

@@ -1,7 +1,8 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
-import { ArrowLeft, Globe, Building2, Mail, Phone, ExternalLink } from 'lucide-react';
+import { ArrowLeft, Globe, Building2, Mail, Phone, ExternalLink, Search, Loader2 } from 'lucide-react';
 import { db, type Company } from '../lib/db';
+import { useSettingsStore } from '../lib/store';
 
 // ─── Design tokens ────────────────────────────────────────────────────────────
 
@@ -103,9 +104,58 @@ interface ContactRow {
   linkedin_url?: string;
 }
 
-function ContactsTable({ rows, showLinkedIn = false }: { rows: ContactRow[]; showLinkedIn?: boolean }) {
+function ContactsTable({ rows, showLinkedIn = false, companyId, companyName, companyDomain, isDirector, onRefresh }: {
+  rows: ContactRow[]; showLinkedIn?: boolean; companyId?: number; companyName?: string; companyDomain?: string; isDirector?: boolean; onRefresh?: () => void;
+}) {
+  const [enrichingIdx, setEnrichingIdx] = useState<number | null>(null);
+  const { apolloKey } = useSettingsStore();
+
+  const enrichPerson = async (row: ContactRow, idx: number) => {
+    if (!row.name) return;
+    setEnrichingIdx(idx);
+    try {
+      const key = apolloKey || 'p_k86JQdDzCm5G3aZqH6zg';
+      // Try Apollo people search by name + domain
+      const domain = companyDomain?.replace(/^https?:\/\/(www\.)?/, '').replace(/\/.*$/, '') || '';
+      const params = new URLSearchParams({ api_key: key });
+      if (row.name) {
+        const parts = row.name.trim().split(/\s+/);
+        if (parts.length >= 2) { params.set('first_name', parts[0]); params.set('last_name', parts.slice(1).join(' ')); }
+        else { params.set('first_name', parts[0]); }
+      }
+      if (domain) params.set('organization_domain', domain);
+      if (companyName) params.set('organization_name', companyName);
+
+      const resp = await fetch(`https://api.apollo.io/api/v1/people/match?${params.toString()}`);
+      if (resp.ok) {
+        const data = await resp.json();
+        const person = data.person || data;
+        const enriched: Partial<ContactRow> = {};
+        if (person.email) enriched.email = person.email;
+        if (person.phone_numbers?.[0]?.sanitized_number) enriched.phone = person.phone_numbers[0].sanitized_number;
+        if (person.linkedin_url) enriched.linkedin_url = person.linkedin_url;
+        if (person.title) enriched.title = person.title;
+
+        if (companyId && Object.keys(enriched).length > 0) {
+          const company = await db.companies.get(companyId);
+          if (company) {
+            const arr = isDirector ? [...(company.directors || [])] : [...(company.contacts || [])];
+            if (arr[idx]) {
+              arr[idx] = { ...arr[idx], ...enriched };
+              const update = isDirector ? { directors: arr } : { contacts: arr };
+              await db.companies.update(companyId, update);
+              onRefresh?.();
+            }
+          }
+        }
+      }
+    } catch (e) { console.error('Enrich error:', e); }
+    setEnrichingIdx(null);
+  };
+
   if (!rows.length) return <div style={{ fontSize: 14, color: S.textMuted }}>No records.</div>;
 
+  const thStyle: React.CSSProperties = { padding: '10px 12px', fontSize: 11, fontWeight: 700, color: S.textMuted, textAlign: 'left', textTransform: 'uppercase', letterSpacing: '0.05em', borderBottom: `1px solid ${S.border}` };
   const tdStyle = { padding: '10px 12px', fontSize: 13, borderBottom: `1px solid ${S.border}` };
 
   return (
@@ -113,54 +163,50 @@ function ContactsTable({ rows, showLinkedIn = false }: { rows: ContactRow[]; sho
       <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
         <thead>
           <tr style={{ background: S.bg }}>
-            <th style={{ ...tdStyle, fontWeight: 700, color: S.textMuted, textAlign: 'left', fontSize: 11, textTransform: 'uppercase', letterSpacing: '0.05em' }}>Name</th>
-            <th style={{ ...tdStyle, fontWeight: 700, color: S.textMuted, textAlign: 'left', fontSize: 11, textTransform: 'uppercase', letterSpacing: '0.05em' }}>Title</th>
-            {showLinkedIn && (
-              <>
-                <th style={{ ...tdStyle, fontWeight: 700, color: S.textMuted, textAlign: 'left', fontSize: 11, textTransform: 'uppercase', letterSpacing: '0.05em' }}>Email</th>
-                <th style={{ ...tdStyle, fontWeight: 700, color: S.textMuted, textAlign: 'left', fontSize: 11, textTransform: 'uppercase', letterSpacing: '0.05em' }}>Phone</th>
-                <th style={{ ...tdStyle, fontWeight: 700, color: S.textMuted, textAlign: 'left', fontSize: 11, textTransform: 'uppercase', letterSpacing: '0.05em' }}>LinkedIn</th>
-              </>
-            )}
+            <th style={thStyle}>Name</th>
+            <th style={thStyle}>Title</th>
+            <th style={thStyle}>Email</th>
+            <th style={thStyle}>Phone</th>
+            <th style={thStyle}>LinkedIn</th>
+            <th style={thStyle}>Actions</th>
           </tr>
         </thead>
         <tbody>
-          {rows.map((r, i) => (
-            <tr key={i}>
-              <td style={{ ...tdStyle, fontWeight: 600, color: S.textPrimary, borderBottom: i === rows.length - 1 ? 'none' : `1px solid ${S.border}` }}>
-                {r.name || '—'}
-              </td>
-              <td style={{ ...tdStyle, color: S.textSecondary, borderBottom: i === rows.length - 1 ? 'none' : `1px solid ${S.border}` }}>
-                {r.title || '—'}
-              </td>
-              {showLinkedIn && (
-                <>
-                  <td style={{ ...tdStyle, borderBottom: i === rows.length - 1 ? 'none' : `1px solid ${S.border}` }}>
-                    {r.email ? (
-                      <a href={`mailto:${r.email}`} style={{ color: S.primary, textDecoration: 'none', display: 'inline-flex', alignItems: 'center', gap: 4 }}>
-                        <Mail size={12} /> {r.email}
-                      </a>
-                    ) : <span style={{ color: S.textMuted }}>—</span>}
-                  </td>
-                  <td style={{ ...tdStyle, borderBottom: i === rows.length - 1 ? 'none' : `1px solid ${S.border}` }}>
-                    {r.phone ? (
-                      <a href={`tel:${r.phone}`} style={{ color: S.primary, textDecoration: 'none', display: 'inline-flex', alignItems: 'center', gap: 4 }}>
-                        <Phone size={12} /> {r.phone}
-                      </a>
-                    ) : <span style={{ color: S.textMuted }}>—</span>}
-                  </td>
-                  <td style={{ ...tdStyle, borderBottom: i === rows.length - 1 ? 'none' : `1px solid ${S.border}` }}>
-                    {r.linkedin_url ? (
-                      <a href={r.linkedin_url} target="_blank" rel="noopener noreferrer"
-                        style={{ color: S.primary, textDecoration: 'none', display: 'inline-flex', alignItems: 'center', gap: 4 }}>
-                        <ExternalLink size={12} /> LinkedIn
-                      </a>
-                    ) : <span style={{ color: S.textMuted }}>—</span>}
-                  </td>
-                </>
-              )}
-            </tr>
-          ))}
+          {rows.map((r, i) => {
+            const bb = i === rows.length - 1 ? 'none' : `1px solid ${S.border}`;
+            const hasContact = r.email || r.phone || r.linkedin_url;
+            return (
+              <tr key={i}>
+                <td style={{ ...tdStyle, fontWeight: 600, color: S.textPrimary, borderBottom: bb }}>{r.name || '—'}</td>
+                <td style={{ ...tdStyle, color: S.textSecondary, borderBottom: bb }}>{r.title || '—'}</td>
+                <td style={{ ...tdStyle, borderBottom: bb }}>
+                  {r.email ? <a href={`mailto:${r.email}`} style={{ color: S.primary, textDecoration: 'none', display: 'inline-flex', alignItems: 'center', gap: 4 }}><Mail size={12} /> {r.email}</a> : <span style={{ color: S.textMuted }}>—</span>}
+                </td>
+                <td style={{ ...tdStyle, borderBottom: bb }}>
+                  {r.phone ? <a href={`tel:${r.phone}`} style={{ color: S.primary, textDecoration: 'none', display: 'inline-flex', alignItems: 'center', gap: 4 }}><Phone size={12} /> {r.phone}</a> : <span style={{ color: S.textMuted }}>—</span>}
+                </td>
+                <td style={{ ...tdStyle, borderBottom: bb }}>
+                  {r.linkedin_url ? <a href={r.linkedin_url} target="_blank" rel="noopener noreferrer" style={{ color: '#0A66C2', textDecoration: 'none', display: 'inline-flex', alignItems: 'center', gap: 4 }}><ExternalLink size={12} /> LinkedIn</a> : <span style={{ color: S.textMuted }}>—</span>}
+                </td>
+                <td style={{ ...tdStyle, borderBottom: bb }}>
+                  <button
+                    disabled={enrichingIdx === i}
+                    onClick={() => enrichPerson(r, i)}
+                    style={{
+                      display: 'inline-flex', alignItems: 'center', gap: 4,
+                      background: hasContact ? '#EEF2FF' : S.primary,
+                      color: hasContact ? S.primary : '#fff',
+                      border: hasContact ? `1px solid ${S.primary}33` : 'none',
+                      borderRadius: 6, padding: '4px 10px', fontSize: 12, fontWeight: 600,
+                      cursor: enrichingIdx === i ? 'wait' : 'pointer', opacity: enrichingIdx === i ? 0.6 : 1,
+                    }}
+                  >
+                    {enrichingIdx === i ? <><Loader2 size={12} style={{ animation: 'spin 1s linear infinite' }} /> Enriching...</> : <><Search size={12} /> {hasContact ? 'Re-enrich' : 'Enrich'}</>}
+                  </button>
+                </td>
+              </tr>
+            );
+          })}
         </tbody>
       </table>
     </div>
@@ -176,13 +222,15 @@ export default function LeadDetailPage() {
   const [notes, setNotes]     = useState('');
   const [notesSaved, setNotesSaved] = useState(false);
 
-  useEffect(() => {
+  const loadCompany = useCallback(() => {
     if (!id) return;
     db.companies.get(Number(id)).then(c => {
       setCompany(c ?? null);
       setNotes(String(c?.notes || ''));
     });
   }, [id]);
+
+  useEffect(() => { loadCompany(); }, [loadCompany]);
 
   const saveNotes = async () => {
     if (!company?.id) return;
@@ -200,7 +248,7 @@ export default function LeadDetailPage() {
 
   const statusStyle = STATUS_COLORS[company.status || 'New'] || { bg: '#F3F4F6', color: '#6B7280' };
   const tags = Array.isArray(company.tags) ? company.tags as string[] : [];
-  const directors = Array.isArray(company.directors) ? company.directors as { name: string; title: string }[] : [];
+  const directors = Array.isArray(company.directors) ? company.directors as { name: string; title: string; email?: string; phone?: string; linkedin_url?: string }[] : [];
   const contacts  = Array.isArray(company.contacts)  ? company.contacts  as ContactRow[] : [];
 
   // Fallback: synthesise a director row from flat fields if directors array is empty
@@ -324,14 +372,14 @@ export default function LeadDetailPage() {
       {/* ── Directors card ── */}
       {directorRows.length > 0 && (
         <Card title="Directors">
-          <ContactsTable rows={directorRows} showLinkedIn={false} />
+          <ContactsTable rows={directorRows} showLinkedIn={true} companyId={company.id} companyName={company.company_name} companyDomain={company.website} isDirector onRefresh={loadCompany} />
         </Card>
       )}
 
       {/* ── Contacts card ── */}
       {contacts.length > 0 && (
         <Card title="Contacts">
-          <ContactsTable rows={contacts} showLinkedIn={true} />
+          <ContactsTable rows={contacts} showLinkedIn={true} companyId={company.id} companyName={company.company_name} companyDomain={company.website} isDirector={false} onRefresh={loadCompany} />
         </Card>
       )}
 
