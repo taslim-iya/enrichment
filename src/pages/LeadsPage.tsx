@@ -123,7 +123,6 @@ function Cell({ col, company, width }: { col: ColDef; company: Company; width: n
   const raw = company[col.key as keyof Company];
 
   if (col.key === 'company_name') {
-    const tz = company.timezone;
     return (
       <td style={{ padding: '10px 16px', maxWidth: width, overflow: 'hidden' }}>
         <div style={{ display: 'flex', alignItems: 'baseline', gap: 6, overflow: 'hidden' }}>
@@ -133,15 +132,6 @@ function Cell({ col, company, width }: { col: ColDef; company: Company; width: n
           }} title={String(company.company_name)}>
             {company.company_name}
           </span>
-          {tz && (
-            <span style={{
-              fontSize: 11, fontWeight: 500, color: STRIPE.textMuted,
-              background: '#F0F4FF', borderRadius: 4, padding: '1px 5px',
-              whiteSpace: 'nowrap', flexShrink: 0,
-            }}>
-              {tz}
-            </span>
-          )}
         </div>
       </td>
     );
