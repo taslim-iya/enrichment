@@ -1,130 +1,126 @@
-import { useState, useEffect } from 'react';
-import { db, type Lead } from '../lib/db';
-import { BarChart2 } from 'lucide-react';
+import { useState, useEffect, useMemo } from 'react';
+import { BarChart3 } from 'lucide-react';
+import { db, type Company } from '../lib/db';
 
-export default function SourcesPage() {
-  const [leads, setLeads] = useState<Lead[]>([]);
+const STRIPE = {
+  card: '#FFFFFF',
+  border: '#E3E8EE',
+  primary: '#635BFF',
+  success: '#059669',
+  textPrimary: '#0A2540',
+  textSecondary: '#425466',
+  textMuted: '#8898aa',
+  bg: '#F6F9FC',
+};
 
-  useEffect(() => {
-    db.leads.toArray().then(setLeads);
-  }, []);
+const PALETTE = ['#635BFF', '#059669', '#E25950', '#f59e0b', '#3b82f6', '#8b5cf6', '#ec4899', '#06b6d4', '#84cc16'];
 
-  // Group leads by source
-  const sourceCounts: Record<string, number> = {};
-  for (const lead of leads) {
-    const src = lead.source || 'Unknown';
-    sourceCounts[src] = (sourceCounts[src] ?? 0) + 1;
-  }
-  const sources = Object.entries(sourceCounts).sort((a, b) => b[1] - a[1]);
-  const maxCount = Math.max(...sources.map(([, c]) => c), 1);
-
-  // Group leads by state
-  const stateCounts: Record<string, number> = {};
-  for (const lead of leads) {
-    const st = lead.state || 'Unknown';
-    stateCounts[st] = (stateCounts[st] ?? 0) + 1;
-  }
-  const states = Object.entries(stateCounts).sort((a, b) => b[1] - a[1]).slice(0, 10);
-
-  // Group by industry
-  const industryCounts: Record<string, number> = {};
-  for (const lead of leads) {
-    const ind = lead.industry || 'Other';
-    industryCounts[ind] = (industryCounts[ind] ?? 0) + 1;
-  }
-  const industries = Object.entries(industryCounts).sort((a, b) => b[1] - a[1]).slice(0, 8);
+function BarChart({ data, label }: { data: [string, number][]; label: string }) {
+  if (data.length === 0) return null;
+  const max = Math.max(...data.map(([, v]) => v));
 
   return (
-    <div>
-      {/* Header */}
-      <div style={{ marginBottom: 24 }}>
-        <h1 style={{ fontSize: 24, fontWeight: 700, color: '#0A2540' }}>Sources</h1>
-        <p style={{ fontSize: 13, color: '#8898aa', marginTop: 2 }}>Analyze where your leads come from</p>
-      </div>
-
-      {/* Stats Row */}
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3,1fr)', gap: 16, marginBottom: 24 }}>
-        {[
-          { label: 'Total Leads', value: leads.length, borderColor: '#635BFF' },
-          { label: 'Unique Sources', value: sources.length, borderColor: '#059669' },
-          { label: 'States Covered', value: Object.keys(stateCounts).filter(s => s !== 'Unknown').length, borderColor: '#3b82f6' },
-        ].map((stat) => (
-          <div key={stat.label} style={{ background: '#fff', border: '1px solid #E3E8EE', borderLeft: `3px solid ${stat.borderColor}`, borderRadius: 12, padding: '20px 24px', boxShadow: '0 1px 3px rgba(0,0,0,0.04)' }}>
-            <p style={{ fontSize: 12, fontWeight: 600, color: '#8898aa', textTransform: 'uppercase', letterSpacing: 0.5 }}>{stat.label}</p>
-            <p style={{ fontSize: 28, fontWeight: 700, color: '#0A2540', marginTop: 4 }}>{stat.value}</p>
+    <div style={{
+      background: STRIPE.card, border: `1px solid ${STRIPE.border}`,
+      borderRadius: 12, padding: 24, boxShadow: '0 1px 3px rgba(0,0,0,0.04)',
+    }}>
+      <div style={{ fontSize: 15, fontWeight: 600, color: STRIPE.textPrimary, marginBottom: 20 }}>{label}</div>
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+        {data.slice(0, 15).map(([key, count], i) => (
+          <div key={key} style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+            <div style={{
+              width: 120, fontSize: 12, color: STRIPE.textSecondary,
+              textAlign: 'right', flexShrink: 0,
+              overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
+            }}>
+              {key}
+            </div>
+            <div style={{ flex: 1, height: 22, background: '#F0F2F5', borderRadius: 4, overflow: 'hidden' }}>
+              <div style={{
+                height: '100%',
+                width: `${Math.round((count / max) * 100)}%`,
+                background: PALETTE[i % PALETTE.length],
+                borderRadius: 4,
+                transition: 'width 0.5s ease',
+                display: 'flex', alignItems: 'center', paddingLeft: 8,
+                minWidth: count > 0 ? 30 : 0,
+              }}>
+                <span style={{ fontSize: 11, color: '#fff', fontWeight: 600 }}>
+                  {count > 0 ? count.toLocaleString() : ''}
+                </span>
+              </div>
+            </div>
+            <div style={{ fontSize: 12, color: STRIPE.textMuted, flexShrink: 0, width: 50 }}>
+              {count.toLocaleString()}
+            </div>
           </div>
         ))}
       </div>
+    </div>
+  );
+}
 
-      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 20, marginBottom: 20 }}>
-        {/* Lead Sources */}
-        <div style={{ background: '#fff', border: '1px solid #E3E8EE', borderRadius: 12, padding: 24, boxShadow: '0 1px 3px rgba(0,0,0,0.04)' }}>
-          <h2 style={{ fontSize: 16, fontWeight: 700, color: '#0A2540', marginBottom: 20 }}>By Source</h2>
-          {sources.length === 0 ? (
-            <div style={{ textAlign: 'center', padding: '40px 0', color: '#8898aa' }}>
-              <BarChart2 size={28} style={{ marginBottom: 8 }} />
-              <p style={{ fontSize: 14 }}>No source data yet</p>
-            </div>
-          ) : (
-            <div style={{ display: 'grid', gap: 12 }}>
-              {sources.map(([src, count]) => (
-                <div key={src}>
-                  <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 5 }}>
-                    <span style={{ fontSize: 13, fontWeight: 600, color: '#0A2540' }}>{src}</span>
-                    <span style={{ fontSize: 13, color: '#8898aa' }}>{count} ({Math.round(count / leads.length * 100)}%)</span>
-                  </div>
-                  <div style={{ height: 6, background: '#E3E8EE', borderRadius: 3 }}>
-                    <div style={{ height: '100%', width: `${(count / maxCount) * 100}%`, background: '#635BFF', borderRadius: 3 }} />
-                  </div>
-                </div>
-              ))}
-            </div>
-          )}
-        </div>
+export default function SourcesPage() {
+  const [companies, setCompanies] = useState<Company[]>([]);
 
-        {/* By State */}
-        <div style={{ background: '#fff', border: '1px solid #E3E8EE', borderRadius: 12, padding: 24, boxShadow: '0 1px 3px rgba(0,0,0,0.04)' }}>
-          <h2 style={{ fontSize: 16, fontWeight: 700, color: '#0A2540', marginBottom: 20 }}>Top States</h2>
-          {states.length === 0 ? (
-            <div style={{ textAlign: 'center', padding: '40px 0', color: '#8898aa' }}>
-              <p style={{ fontSize: 14 }}>No location data yet</p>
-            </div>
-          ) : (
-            <div style={{ display: 'grid', gap: 10 }}>
-              {states.map(([state, count], i) => (
-                <div key={state} style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-                  <span style={{ fontSize: 12, fontWeight: 700, color: '#8898aa', width: 20, textAlign: 'right' }}>{i + 1}</span>
-                  <span style={{ fontSize: 13, fontWeight: 600, color: '#0A2540', width: 40 }}>{state}</span>
-                  <div style={{ flex: 1, height: 6, background: '#E3E8EE', borderRadius: 3 }}>
-                    <div style={{ height: '100%', width: `${(count / states[0][1]) * 100}%`, background: '#3b82f6', borderRadius: 3 }} />
-                  </div>
-                  <span style={{ fontSize: 12, color: '#8898aa', width: 30, textAlign: 'right' }}>{count}</span>
-                </div>
-              ))}
-            </div>
-          )}
-        </div>
+  useEffect(() => {
+    db.companies.toArray().then(setCompanies);
+  }, []);
+
+  const byIndustry = useMemo(() => {
+    const counts: Record<string, number> = {};
+    for (const c of companies) {
+      const k = c.industry || 'Unknown';
+      counts[k] = (counts[k] || 0) + 1;
+    }
+    return Object.entries(counts).sort((a, b) => b[1] - a[1]);
+  }, [companies]);
+
+  const byGeo = useMemo(() => {
+    const counts: Record<string, number> = {};
+    for (const c of companies) {
+      const k = c.geography || c.state || 'Unknown';
+      counts[k] = (counts[k] || 0) + 1;
+    }
+    return Object.entries(counts).sort((a, b) => b[1] - a[1]);
+  }, [companies]);
+
+  const byStatus = useMemo(() => {
+    const counts: Record<string, number> = {};
+    for (const c of companies) {
+      const k = c.status || 'Unknown';
+      counts[k] = (counts[k] || 0) + 1;
+    }
+    return Object.entries(counts).sort((a, b) => b[1] - a[1]);
+  }, [companies]);
+
+  return (
+    <div>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 24 }}>
+        <h1 style={{ fontSize: 24, fontWeight: 700, color: STRIPE.textPrimary }}>Sources & Analytics</h1>
+        <span style={{ background: '#EEF2FF', color: '#635BFF', padding: '2px 10px', borderRadius: 20, fontSize: 13, fontWeight: 600 }}>
+          {companies.length.toLocaleString()} companies
+        </span>
       </div>
 
-      {/* By Industry */}
-      <div style={{ background: '#fff', border: '1px solid #E3E8EE', borderRadius: 12, padding: 24, boxShadow: '0 1px 3px rgba(0,0,0,0.04)' }}>
-        <h2 style={{ fontSize: 16, fontWeight: 700, color: '#0A2540', marginBottom: 20 }}>By Industry</h2>
-        {industries.length === 0 ? (
-          <div style={{ textAlign: 'center', padding: '30px 0', color: '#8898aa' }}>
-            <p style={{ fontSize: 14 }}>No industry data yet</p>
+      {companies.length === 0 ? (
+        <div style={{
+          background: STRIPE.card, border: `1px solid ${STRIPE.border}`,
+          borderRadius: 12, padding: '60px 40px', textAlign: 'center',
+        }}>
+          <BarChart3 size={40} color={STRIPE.border} style={{ margin: '0 auto 16px' }} />
+          <div style={{ fontSize: 16, fontWeight: 600, color: STRIPE.textPrimary, marginBottom: 8 }}>No data yet</div>
+          <div style={{ fontSize: 14, color: STRIPE.textMuted }}>
+            Sync companies from DealFlow to see analytics.
           </div>
-        ) : (
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4,1fr)', gap: 12 }}>
-            {industries.map(([industry, count]) => (
-              <div key={industry} style={{ background: '#F6F9FC', border: '1px solid #E3E8EE', borderRadius: 10, padding: '16px 20px' }}>
-                <p style={{ fontSize: 14, fontWeight: 700, color: '#0A2540' }}>{count}</p>
-                <p style={{ fontSize: 12, color: '#8898aa', marginTop: 2, textTransform: 'capitalize' }}>{industry.replace(/_/g, ' ')}</p>
-                <p style={{ fontSize: 11, color: '#8898aa', marginTop: 4 }}>{Math.round(count / leads.length * 100)}%</p>
-              </div>
-            ))}
-          </div>
-        )}
-      </div>
+        </div>
+      ) : (
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(480px, 1fr))', gap: 20 }}>
+          <BarChart data={byIndustry} label="Companies by Industry" />
+          <BarChart data={byGeo} label="Companies by Geography" />
+          <BarChart data={byStatus} label="Companies by Status" />
+        </div>
+      )}
     </div>
   );
 }

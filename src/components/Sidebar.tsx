@@ -1,28 +1,34 @@
-import { NavLink } from 'react-router-dom';
+import { useLocation, useNavigate } from 'react-router-dom';
 import {
-  Users,
+  MessageCircle,
+  Building2,
   PhoneCall,
   Zap,
-  UserCircle,
+  Users,
   ArrowLeftRight,
   ArrowUpDown,
+  BarChart3,
   Settings,
-  MessageCircle,
 } from 'lucide-react';
 
-const navItems = [
-  { to: '/leads', icon: Users, label: 'Leads' },
-  { to: '/call-sheet', icon: PhoneCall, label: 'For Me' },
-  { to: '/enrichment', icon: Zap, label: 'Engine' },
-  { to: '/team', icon: UserCircle, label: 'Team' },
-  { to: '/dealflow', icon: ArrowUpDown, label: 'DealFlow' },
-  { to: '/import-export', icon: ArrowLeftRight, label: 'Import & Export' },
-  { to: '/settings', icon: Settings, label: 'Settings' },
+const NAV_ITEMS = [
+  { label: 'Jarvis Chat', icon: MessageCircle, path: '/chat' },
+  { label: 'Companies', icon: Building2, path: '/leads' },
+  { label: 'Call Sheet', icon: PhoneCall, path: '/call-sheet' },
+  { label: 'Enrichment', icon: Zap, path: '/enrichment' },
+  { label: 'Team', icon: Users, path: '/team' },
+  { label: 'DealFlow', icon: ArrowLeftRight, path: '/dealflow' },
+  { label: 'Import/Export', icon: ArrowUpDown, path: '/import-export' },
+  { label: 'Sources', icon: BarChart3, path: '/sources' },
+  { label: 'Settings', icon: Settings, path: '/settings' },
 ];
 
 export function Sidebar() {
+  const location = useLocation();
+  const navigate = useNavigate();
+
   return (
-    <aside
+    <nav
       style={{
         position: 'fixed',
         top: 0,
@@ -34,6 +40,7 @@ export function Sidebar() {
         display: 'flex',
         flexDirection: 'column',
         zIndex: 100,
+        overflowY: 'auto',
       }}
     >
       {/* Logo */}
@@ -43,94 +50,65 @@ export function Sidebar() {
           borderBottom: '1px solid #E3E8EE',
         }}
       >
-        <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-          <span style={{ fontSize: 24 }}>🐕</span>
-          <div>
-            <div style={{ fontSize: 16, fontWeight: 700, color: '#0A2540', lineHeight: 1.2 }}>
-              Corgi
-            </div>
-            <div style={{ fontSize: 12, color: '#8898aa', lineHeight: 1.2 }}>
-              Enrichment
-            </div>
-          </div>
+        <div style={{ fontSize: 20, fontWeight: 700, color: '#0A2540', letterSpacing: '-0.3px' }}>
+          🐕 Corgi
+        </div>
+        <div style={{ fontSize: 12, color: '#8898aa', marginTop: 2, fontWeight: 500 }}>
+          Enrichment
         </div>
       </div>
 
-      {/* Jarvis Chat Button */}
-      <div style={{ padding: '12px 12px 4px' }}>
-        <button
-          style={{
-            display: 'flex',
-            alignItems: 'center',
-            gap: 10,
-            width: '100%',
-            padding: '10px 12px',
-            background: 'rgba(99,91,255,0.08)',
-            border: '1px solid rgba(99,91,255,0.2)',
-            borderRadius: 8,
-            cursor: 'pointer',
-            color: '#635BFF',
-            fontSize: 13,
-            fontWeight: 600,
-          }}
-        >
-          <MessageCircle size={16} />
-          Ask Jarvis
-        </button>
-      </div>
+      {/* Nav items */}
+      <div style={{ padding: '12px 8px', flex: 1 }}>
+        {NAV_ITEMS.map((item) => {
+          const isActive = location.pathname === item.path ||
+            (item.path === '/leads' && location.pathname.startsWith('/leads'));
+          const Icon = item.icon;
 
-      {/* Nav */}
-      <nav style={{ flex: 1, padding: '8px 12px', overflowY: 'auto' }}>
-        {navItems.map(({ to, icon: Icon, label }) => (
-          <NavLink
-            key={to}
-            to={to}
-            style={({ isActive }) => ({
-              display: 'flex',
-              alignItems: 'center',
-              gap: 10,
-              height: 40,
-              padding: '0 12px',
-              marginBottom: 2,
-              borderRadius: 8,
-              fontSize: 13,
-              fontWeight: isActive ? 600 : 400,
-              color: isActive ? '#635BFF' : '#425466',
-              background: isActive ? 'rgba(99,91,255,0.08)' : 'transparent',
-              borderLeft: isActive ? '3px solid #635BFF' : '3px solid transparent',
-              textDecoration: 'none',
-              transition: 'all 0.15s ease',
-            })}
-            onMouseEnter={(e) => {
-              const el = e.currentTarget as HTMLElement;
-              if (!el.getAttribute('aria-current')) {
-                el.style.background = '#F6F9FC';
-              }
-            }}
-            onMouseLeave={(e) => {
-              const el = e.currentTarget as HTMLElement;
-              if (!el.getAttribute('aria-current')) {
-                el.style.background = 'transparent';
-              }
-            }}
-          >
-            <Icon size={16} />
-            {label}
-          </NavLink>
-        ))}
-      </nav>
+          return (
+            <button
+              key={item.path}
+              onClick={() => navigate(item.path)}
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                gap: 10,
+                width: '100%',
+                padding: '9px 12px',
+                marginBottom: 2,
+                borderRadius: 8,
+                border: 'none',
+                cursor: 'pointer',
+                fontSize: 14,
+                fontWeight: isActive ? 600 : 400,
+                background: isActive ? 'rgba(99,91,255,0.08)' : 'transparent',
+                color: isActive ? '#635BFF' : '#425466',
+                textAlign: 'left',
+                transition: 'background 0.12s, color 0.12s',
+                borderLeft: isActive ? '3px solid #635BFF' : '3px solid transparent',
+              }}
+              onMouseEnter={(e) => {
+                if (!isActive) {
+                  (e.currentTarget as HTMLButtonElement).style.background = '#F6F9FC';
+                }
+              }}
+              onMouseLeave={(e) => {
+                if (!isActive) {
+                  (e.currentTarget as HTMLButtonElement).style.background = 'transparent';
+                }
+              }}
+            >
+              <Icon size={16} strokeWidth={isActive ? 2.2 : 1.8} />
+              {item.label}
+            </button>
+          );
+        })}
+      </div>
 
       {/* Footer */}
-      <div
-        style={{
-          padding: '12px 20px',
-          borderTop: '1px solid #E3E8EE',
-          fontSize: 11,
-          color: '#8898aa',
-        }}
-      >
-        v2.0
+      <div style={{ padding: '16px 20px', borderTop: '1px solid #E3E8EE' }}>
+        <div style={{ fontSize: 11, color: '#8898aa' }}>Corgi Enrichment v2</div>
       </div>
-    </aside>
+    </nav>
   );
 }

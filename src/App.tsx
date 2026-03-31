@@ -9,15 +9,17 @@ import DealFlowPage from './pages/DealFlowPage';
 import ImportExportPage from './pages/ImportExportPage';
 import SettingsPage from './pages/SettingsPage';
 import EnrichmentPage from './pages/EnrichmentPage';
+import JarvisPage from './pages/JarvisPage';
 
 export default function App() {
   return (
     <BrowserRouter>
       <div style={{ display: 'flex', minHeight: '100vh', background: '#F6F9FC' }}>
         <Sidebar />
-        <main style={{ flex: 1, marginLeft: 256, padding: '32px 40px', minWidth: 0 }}>
+        <main style={{ flex: 1, marginLeft: 256, padding: '32px 40px' }}>
           <Routes>
             <Route path="/" element={<Navigate to="/leads" replace />} />
+            <Route path="/chat" element={<JarvisPage />} />
             <Route path="/leads" element={<LeadsPage />} />
             <Route path="/leads/:id" element={<LeadDetailPage />} />
             <Route path="/call-sheet" element={<CallSheetPage />} />

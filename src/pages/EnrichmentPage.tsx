@@ -1,155 +1,151 @@
 import { useState, useEffect } from 'react';
-import { db, type Lead, type EnrichmentLog } from '../lib/db';
-import { useSettingsStore } from '../lib/store';
-import { Zap, RefreshCw, CheckCircle, XCircle, Clock } from 'lucide-react';
+import { Zap, Clock, AlertCircle } from 'lucide-react';
+import { db, type EnrichmentLog } from '../lib/db';
+
+const STRIPE = {
+  card: '#FFFFFF',
+  border: '#E3E8EE',
+  primary: '#635BFF',
+  success: '#059669',
+  danger: '#E25950',
+  textPrimary: '#0A2540',
+  textSecondary: '#425466',
+  textMuted: '#8898aa',
+  bg: '#F6F9FC',
+};
 
 export default function EnrichmentPage() {
-  const [leads, setLeads] = useState<Lead[]>([]);
   const [logs, setLogs] = useState<EnrichmentLog[]>([]);
-  const { apiKeys } = useSettingsStore();
+  const [enriching, setEnriching] = useState(false);
 
   useEffect(() => {
-    Promise.all([
-      db.leads.toArray(),
-      db.enrichment_log.orderBy('created_at').reverse().limit(50).toArray(),
-    ]).then(([l, lg]) => {
-      setLeads(l);
-      setLogs(lg);
-    });
+    db.enrichment_log.orderBy('created_at').reverse().limit(20).toArray().then(setLogs);
   }, []);
 
-  const enrichedCount = leads.filter((l) => l.enrichment_completeness && l.enrichment_completeness > 0).length;
-  const avgScore = leads.filter((l) => l.quality_score != null).length > 0
-    ? Math.round(leads.reduce((acc, l) => acc + (l.quality_score ?? 0), 0) / leads.filter((l) => l.quality_score != null).length)
-    : 0;
-  const successLogs = logs.filter((l) => l.success).length;
-  const failLogs = logs.filter((l) => !l.success).length;
+  const handleEnrich = async () => {
+    setEnriching(true);
+    // Placeholder — would hit Apollo API or similar
+    const companies = await db.companies.toArray();
+    const toEnrich = companies.filter(c => !c.email && !c.director_email).slice(0, 5);
+
+    for (const company of toEnrich) {
+      await db.enrichment_log.add({
+        entity_type: 'company',
+        entity_id: company.id!,
+        source: 'apollo',
+        success: false,
+        error: 'Apollo API not configured',
+        duration_ms: 0,
+        created_at: new Date().toISOString(),
+      });
+    }
+
+    const updated = await db.enrichment_log.orderBy('created_at').reverse().limit(20).toArray();
+    setLogs(updated);
+    setEnriching(false);
+  };
 
   return (
-    <div>
-      {/* Header */}
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 24 }}>
-        <div>
-          <h1 style={{ fontSize: 24, fontWeight: 700, color: '#0A2540' }}>Enrichment Engine</h1>
-          <p style={{ fontSize: 13, color: '#8898aa', marginTop: 2 }}>AI-powered lead enrichment and scoring</p>
-        </div>
+    <div style={{ maxWidth: 700 }}>
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 24 }}>
+        <h1 style={{ fontSize: 24, fontWeight: 700, color: STRIPE.textPrimary }}>Enrichment</h1>
         <button
-          style={{ display: 'flex', alignItems: 'center', gap: 8, background: '#635BFF', color: '#fff', border: 'none', padding: '10px 20px', borderRadius: 8, fontSize: 14, fontWeight: 600, cursor: 'pointer' }}
-          disabled={!apiKeys.openai && !apiKeys.anthropic}
+          onClick={handleEnrich}
+          disabled={enriching}
+          style={{
+            display: 'flex', alignItems: 'center', gap: 8,
+            padding: '9px 18px', borderRadius: 8, border: 'none',
+            background: enriching ? '#E3E8EE' : STRIPE.primary,
+            color: enriching ? STRIPE.textMuted : '#fff',
+            fontSize: 14, fontWeight: 600, cursor: enriching ? 'not-allowed' : 'pointer',
+          }}
         >
-          <Zap size={16} /> Run Enrichment
+          <Zap size={14} />
+          {enriching ? 'Enriching…' : 'Enrich Companies'}
         </button>
       </div>
 
-      {/* API Key warning */}
-      {!apiKeys.openai && !apiKeys.anthropic && (
-        <div style={{ background: '#FFFBEB', border: '1px solid #f59e0b', borderRadius: 12, padding: '14px 20px', marginBottom: 20, display: 'flex', alignItems: 'center', gap: 10 }}>
-          <span style={{ fontSize: 16 }}>⚠️</span>
-          <div>
-            <p style={{ fontSize: 14, fontWeight: 600, color: '#92400e' }}>API Keys Required</p>
-            <p style={{ fontSize: 13, color: '#78350f' }}>Add your OpenAI or Anthropic API key in Settings to enable enrichment.</p>
+      {/* Info Card */}
+      <div style={{
+        background: STRIPE.card, border: `1px solid ${STRIPE.border}`,
+        borderRadius: 12, padding: 24, marginBottom: 20,
+        boxShadow: '0 1px 3px rgba(0,0,0,0.04)',
+      }}>
+        <div style={{ display: 'flex', gap: 16, marginBottom: 16 }}>
+          <div style={{
+            width: 44, height: 44, borderRadius: 10,
+            background: '#EEF2FF', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0,
+          }}>
+            <Zap size={20} color={STRIPE.primary} />
           </div>
+          <div>
+            <div style={{ fontSize: 15, fontWeight: 600, color: STRIPE.textPrimary, marginBottom: 4 }}>
+              Automatic Enrichment
+            </div>
+            <p style={{ fontSize: 13, color: STRIPE.textMuted, lineHeight: 1.6 }}>
+              Enrichment automatically fills in missing contact details, emails, and phone numbers
+              for your synced companies using Apollo and other data sources. Configure your Apollo API
+              key to activate enrichment.
+            </p>
+          </div>
+        </div>
+
+        <div style={{
+          display: 'inline-flex', alignItems: 'center', gap: 6,
+          padding: '6px 12px', borderRadius: 8,
+          background: '#FEF3C7', border: '1px solid #FDE68A',
+        }}>
+          <AlertCircle size={12} color="#92400e" />
+          <span style={{ fontSize: 12, color: '#92400e', fontWeight: 500 }}>
+            Apollo API key not configured — enrichment is in placeholder mode
+          </span>
+        </div>
+      </div>
+
+      {/* Activity Log */}
+      <h2 style={{ fontSize: 16, fontWeight: 600, color: STRIPE.textPrimary, marginBottom: 12 }}>
+        Recent Activity
+      </h2>
+
+      {logs.length === 0 ? (
+        <div style={{
+          background: STRIPE.card, border: `1px solid ${STRIPE.border}`,
+          borderRadius: 12, padding: '40px', textAlign: 'center',
+        }}>
+          <Clock size={32} color={STRIPE.border} style={{ margin: '0 auto 12px' }} />
+          <div style={{ fontSize: 14, color: STRIPE.textMuted }}>No enrichment activity yet.</div>
+        </div>
+      ) : (
+        <div style={{
+          background: STRIPE.card, border: `1px solid ${STRIPE.border}`,
+          borderRadius: 12, overflow: 'hidden',
+          boxShadow: '0 1px 3px rgba(0,0,0,0.04)',
+        }}>
+          {logs.map((log, i) => (
+            <div key={log.id} style={{
+              display: 'flex', alignItems: 'center', padding: '12px 20px',
+              borderBottom: i < logs.length - 1 ? `1px solid ${STRIPE.border}` : 'none',
+            }}>
+              <div style={{
+                width: 8, height: 8, borderRadius: 4,
+                background: log.success ? STRIPE.success : STRIPE.danger,
+                marginRight: 12, flexShrink: 0,
+              }} />
+              <div style={{ flex: 1 }}>
+                <div style={{ fontSize: 13, color: STRIPE.textPrimary }}>
+                  {log.entity_type} #{log.entity_id} — <span style={{ color: STRIPE.textMuted }}>{log.source}</span>
+                </div>
+                {log.error && (
+                  <div style={{ fontSize: 12, color: STRIPE.danger, marginTop: 2 }}>{log.error}</div>
+                )}
+              </div>
+              <div style={{ fontSize: 12, color: STRIPE.textMuted }}>
+                {new Date(log.created_at).toLocaleString()}
+              </div>
+            </div>
+          ))}
         </div>
       )}
-
-      {/* Stats */}
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4,1fr)', gap: 16, marginBottom: 24 }}>
-        {[
-          { label: 'Total Leads', value: leads.length, borderColor: '#635BFF' },
-          { label: 'Enriched', value: enrichedCount, borderColor: '#059669' },
-          { label: 'Avg Score', value: avgScore || '—', borderColor: '#3b82f6' },
-          { label: 'Log Entries', value: logs.length, borderColor: '#8898aa' },
-        ].map((stat) => (
-          <div key={stat.label} style={{ background: '#fff', border: '1px solid #E3E8EE', borderLeft: `3px solid ${stat.borderColor}`, borderRadius: 12, padding: '20px 24px', boxShadow: '0 1px 3px rgba(0,0,0,0.04)' }}>
-            <p style={{ fontSize: 12, fontWeight: 600, color: '#8898aa', textTransform: 'uppercase', letterSpacing: 0.5 }}>{stat.label}</p>
-            <p style={{ fontSize: 28, fontWeight: 700, color: '#0A2540', marginTop: 4 }}>{stat.value}</p>
-          </div>
-        ))}
-      </div>
-
-      {/* Top leads needing enrichment */}
-      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 20 }}>
-        <div>
-          <h2 style={{ fontSize: 16, fontWeight: 700, color: '#0A2540', marginBottom: 12 }}>Needs Enrichment</h2>
-          <div style={{ background: '#fff', border: '1px solid #E3E8EE', borderRadius: 12, overflow: 'hidden', boxShadow: '0 1px 3px rgba(0,0,0,0.04)' }}>
-            {leads.filter((l) => !l.enrichment_completeness || l.enrichment_completeness < 30).slice(0, 10).length === 0 ? (
-              <div style={{ padding: 40, textAlign: 'center', color: '#8898aa' }}>
-                <CheckCircle size={28} style={{ marginBottom: 8, color: '#059669' }} />
-                <p style={{ fontSize: 14, fontWeight: 600, color: '#425466' }}>All leads enriched!</p>
-              </div>
-            ) : (
-              <table style={{ width: '100%', borderCollapse: 'collapse' }}>
-                <thead>
-                  <tr style={{ background: '#F6F9FC' }}>
-                    {['Company', 'Completeness', ''].map((col) => (
-                      <th key={col} style={{ padding: '10px 14px', textAlign: 'left', fontSize: 12, fontWeight: 600, color: '#8898aa', textTransform: 'uppercase', letterSpacing: 0.5, borderBottom: '1px solid #E3E8EE' }}>{col}</th>
-                    ))}
-                  </tr>
-                </thead>
-                <tbody>
-                  {leads.filter((l) => !l.enrichment_completeness || l.enrichment_completeness < 30).slice(0, 10).map((lead) => (
-                    <tr key={lead.id} style={{ borderBottom: '1px solid #E3E8EE' }}
-                      onMouseEnter={(e) => (e.currentTarget.style.background = '#F6F9FC')}
-                      onMouseLeave={(e) => (e.currentTarget.style.background = '#fff')}
-                    >
-                      <td style={{ padding: '12px 14px', fontSize: 13, fontWeight: 600, color: '#0A2540' }}>{lead.company_name}</td>
-                      <td style={{ padding: '12px 14px' }}>
-                        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                          <div style={{ flex: 1, height: 6, background: '#E3E8EE', borderRadius: 3 }}>
-                            <div style={{ width: `${lead.enrichment_completeness ?? 0}%`, height: '100%', background: '#635BFF', borderRadius: 3 }} />
-                          </div>
-                          <span style={{ fontSize: 12, color: '#8898aa', fontWeight: 600, minWidth: 30 }}>{lead.enrichment_completeness ?? 0}%</span>
-                        </div>
-                      </td>
-                      <td style={{ padding: '12px 14px' }}>
-                        <button style={{ background: 'none', border: '1px solid #635BFF', borderRadius: 6, padding: '4px 10px', fontSize: 12, color: '#635BFF', cursor: 'pointer', fontWeight: 600 }}>
-                          Enrich
-                        </button>
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            )}
-          </div>
-        </div>
-
-        {/* Enrichment Log */}
-        <div>
-          <h2 style={{ fontSize: 16, fontWeight: 700, color: '#0A2540', marginBottom: 12 }}>Recent Activity</h2>
-          <div style={{ background: '#fff', border: '1px solid #E3E8EE', borderRadius: 12, overflow: 'hidden', boxShadow: '0 1px 3px rgba(0,0,0,0.04)' }}>
-            {logs.length === 0 ? (
-              <div style={{ padding: 40, textAlign: 'center', color: '#8898aa' }}>
-                <Clock size={28} style={{ marginBottom: 8 }} />
-                <p style={{ fontSize: 14, fontWeight: 600, color: '#425466' }}>No activity yet</p>
-                <p style={{ fontSize: 13, marginTop: 4 }}>Enrichment logs will appear here.</p>
-              </div>
-            ) : (
-              <div style={{ maxHeight: 400, overflowY: 'auto' }}>
-                {logs.map((log) => (
-                  <div key={log.id} style={{ display: 'flex', alignItems: 'flex-start', gap: 12, padding: '12px 16px', borderBottom: '1px solid #F6F9FC' }}>
-                    {log.success
-                      ? <CheckCircle size={16} style={{ color: '#059669', marginTop: 1, flexShrink: 0 }} />
-                      : <XCircle size={16} style={{ color: '#E25950', marginTop: 1, flexShrink: 0 }} />
-                    }
-                    <div style={{ flex: 1 }}>
-                      <p style={{ fontSize: 13, fontWeight: 600, color: '#0A2540' }}>{log.source}</p>
-                      <p style={{ fontSize: 12, color: '#8898aa' }}>
-                        {log.entity_type} #{log.entity_id}
-                        {log.duration_ms ? ` · ${log.duration_ms}ms` : ''}
-                      </p>
-                      {log.error && <p style={{ fontSize: 12, color: '#E25950', marginTop: 2 }}>{log.error}</p>}
-                    </div>
-                    <span style={{ fontSize: 11, color: '#8898aa', whiteSpace: 'nowrap' }}>
-                      {new Date(log.created_at).toLocaleTimeString()}
-                    </span>
-                  </div>
-                ))}
-              </div>
-            )}
-          </div>
-        </div>
-      </div>
     </div>
   );
 }

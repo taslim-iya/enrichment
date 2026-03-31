@@ -1,294 +1,393 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { db, type Lead } from '../lib/db';
-import { ALL_STATUSES, INDUSTRY_LABELS, formatPhone } from '../lib/constants';
+import { RefreshCw, Search, Building2, Globe, Users, ChevronUp, ChevronDown } from 'lucide-react';
+import { db, type Company, upsertCompanies } from '../lib/db';
+import { useSettingsStore } from '../lib/store';
+import { startDealFlowSync } from '../lib/sync';
 
-const STATUS_BADGE: Record<string, { bg: string; color: string }> = {
-  New: { bg: '#E8F5E9', color: '#2E7D32' },
-  Contacted: { bg: '#E3F2FD', color: '#1565C0' },
-  Booked: { bg: '#E0F2F1', color: '#00695C' },
-  Qualified: { bg: '#F3E5F5', color: '#7B1FA2' },
-  Won: { bg: '#E0F2F1', color: '#00695C' },
-  Lost: { bg: '#FFEBEE', color: '#C62828' },
-  'Bad Fit': { bg: '#FFEBEE', color: '#C62828' },
-  'Not Interested': { bg: '#FFF3E0', color: '#E65100' },
-  'Existing Partner': { bg: '#F3E5F5', color: '#7B1FA2' },
-  'Low Interest': { bg: '#FFFDE7', color: '#F57F17' },
+const STRIPE = {
+  bg: '#F6F9FC',
+  card: '#FFFFFF',
+  border: '#E3E8EE',
+  primary: '#635BFF',
+  success: '#059669',
+  danger: '#E25950',
+  textPrimary: '#0A2540',
+  textSecondary: '#425466',
+  textMuted: '#8898aa',
+  tableHeaderBg: '#F6F9FC',
+  tableRowHover: '#F0F2F5',
 };
 
-function StatusBadge({ status }: { status: string }) {
-  const style = STATUS_BADGE[status] ?? { bg: '#F6F9FC', color: '#425466' };
+const STATUS_COLORS: Record<string, { bg: string; color: string }> = {
+  New: { bg: '#EEF2FF', color: '#635BFF' },
+  Contacted: { bg: '#FEF9C3', color: '#92400e' },
+  Booked: { bg: '#D1FAE5', color: '#065F46' },
+  'Bad Fit': { bg: '#FEE2E2', color: '#991B1B' },
+  'Not Interested': { bg: '#F3F4F6', color: '#6B7280' },
+  'Existing Partner': { bg: '#E0F2FE', color: '#0369A1' },
+  'Low Interest': { bg: '#FEF3C7', color: '#92400e' },
+};
+
+function StatusBadge({ status }: { status?: string }) {
+  const s = STATUS_COLORS[status || 'New'] || { bg: '#F3F4F6', color: '#6B7280' };
   return (
-    <span
-      style={{
-        display: 'inline-flex',
-        alignItems: 'center',
-        padding: '3px 10px',
-        borderRadius: 20,
-        fontSize: 12,
-        fontWeight: 600,
-        background: style.bg,
-        color: style.color,
-        whiteSpace: 'nowrap',
-      }}
-    >
-      {status}
+    <span style={{
+      display: 'inline-flex',
+      alignItems: 'center',
+      padding: '2px 10px',
+      borderRadius: 20,
+      fontSize: 12,
+      fontWeight: 600,
+      background: s.bg,
+      color: s.color,
+      whiteSpace: 'nowrap',
+    }}>
+      {status || 'New'}
     </span>
   );
 }
 
-function ScoreBadge({ score }: { score?: number | null }) {
-  if (score == null) return <span style={{ color: '#8898aa', fontSize: 13 }}>—</span>;
-  const color = score >= 70 ? '#059669' : score >= 40 ? '#f59e0b' : '#E25950';
-  const bg = score >= 70 ? '#ECFDF5' : score >= 40 ? '#FFFBEB' : '#FFF1F0';
-  return (
-    <span
-      style={{
-        display: 'inline-flex',
-        alignItems: 'center',
-        padding: '3px 10px',
-        borderRadius: 20,
-        fontSize: 12,
-        fontWeight: 700,
-        background: bg,
-        color,
-      }}
-    >
-      {score}
-    </span>
-  );
-}
+type SortKey = keyof Company | '';
+type SortDir = 'asc' | 'desc';
 
 export default function LeadsPage() {
-  const [leads, setLeads] = useState<Lead[]>([]);
-  const [search, setSearch] = useState('');
-  const [statusFilter, setStatusFilter] = useState('');
-  const [industryFilter, setIndustryFilter] = useState('');
   const navigate = useNavigate();
+  const { dealflowUrl, apiKey, setLastSync } = useSettingsStore();
+  const [companies, setCompanies] = useState<Company[]>([]);
+  const [search, setSearch] = useState('');
+  const [filterIndustry, setFilterIndustry] = useState('');
+  const [filterGeo, setFilterGeo] = useState('');
+  const [filterStatus, setFilterStatus] = useState('');
+  const [sortKey, setSortKey] = useState<SortKey>('company_name');
+  const [sortDir, setSortDir] = useState<SortDir>('asc');
+  const [syncing, setSyncing] = useState(false);
+  const [syncProgress, setSyncProgress] = useState(0);
+  const [syncTotal, setSyncTotal] = useState(0);
+  const [syncError, setSyncError] = useState('');
 
-  useEffect(() => {
-    db.leads.toArray().then(setLeads);
-  }, []);
+  const loadCompanies = async () => {
+    const all = await db.companies.toArray();
+    setCompanies(all);
+  };
 
-  const filtered = leads.filter((l) => {
-    const q = search.toLowerCase();
-    const matchSearch =
-      !q ||
-      l.company_name?.toLowerCase().includes(q) ||
-      l.contact_name?.toLowerCase().includes(q) ||
-      l.city?.toLowerCase().includes(q) ||
-      l.state?.toLowerCase().includes(q);
-    const matchStatus = !statusFilter || l.status === statusFilter;
-    const matchIndustry = !industryFilter || l.industry === industryFilter;
-    return matchSearch && matchStatus && matchIndustry;
-  });
+  useEffect(() => { loadCompanies(); }, []);
 
-  const total = leads.length;
-  const newCount = leads.filter((l) => l.status === 'New').length;
-  const contactedCount = leads.filter((l) => l.status === 'Contacted').length;
-  const bookedCount = leads.filter((l) => l.status === 'Booked').length;
+  const industries = useMemo(() => [...new Set(companies.map(c => c.industry).filter(Boolean))].sort() as string[], [companies]);
+  const geos = useMemo(() => [...new Set(companies.map(c => c.geography || c.state).filter(Boolean))].sort() as string[], [companies]);
+  const statuses = useMemo(() => [...new Set(companies.map(c => c.status).filter(Boolean))].sort() as string[], [companies]);
 
-  const stats = [
-    { label: 'Total Leads', value: total, borderColor: '#635BFF' },
-    { label: 'New', value: newCount, borderColor: '#059669' },
-    { label: 'Contacted', value: contactedCount, borderColor: '#3b82f6' },
-    { label: 'Booked', value: bookedCount, borderColor: '#8b5cf6' },
-  ];
+  const filtered = useMemo(() => {
+    let list = companies;
+    if (search) {
+      const q = search.toLowerCase();
+      list = list.filter(c =>
+        c.company_name?.toLowerCase().includes(q) ||
+        c.director?.toLowerCase().includes(q) ||
+        c.industry?.toLowerCase().includes(q) ||
+        c.geography?.toLowerCase().includes(q)
+      );
+    }
+    if (filterIndustry) list = list.filter(c => c.industry === filterIndustry);
+    if (filterGeo) list = list.filter(c => c.geography === filterGeo || c.state === filterGeo);
+    if (filterStatus) list = list.filter(c => c.status === filterStatus);
+
+    if (sortKey) {
+      list = [...list].sort((a, b) => {
+        const av = String(a[sortKey as keyof Company] || '').toLowerCase();
+        const bv = String(b[sortKey as keyof Company] || '').toLowerCase();
+        const cmp = av.localeCompare(bv);
+        return sortDir === 'asc' ? cmp : -cmp;
+      });
+    }
+    return list;
+  }, [companies, search, filterIndustry, filterGeo, filterStatus, sortKey, sortDir]);
+
+  const handleSort = (key: SortKey) => {
+    if (sortKey === key) {
+      setSortDir(d => d === 'asc' ? 'desc' : 'asc');
+    } else {
+      setSortKey(key);
+      setSortDir('asc');
+    }
+  };
+
+  const handleSync = () => {
+    if (!apiKey) {
+      setSyncError('Please set your API key in Settings first.');
+      return;
+    }
+    setSyncing(true);
+    setSyncProgress(0);
+    setSyncTotal(0);
+    setSyncError('');
+
+    startDealFlowSync(
+      dealflowUrl,
+      apiKey,
+      async (batch, sent, total) => {
+        setSyncProgress(sent);
+        setSyncTotal(total);
+        await upsertCompanies(batch);
+      },
+      async (total) => {
+        setSyncing(false);
+        setSyncProgress(total);
+        setLastSync(new Date().toISOString(), total);
+        await loadCompanies();
+      },
+      (err) => {
+        setSyncing(false);
+        setSyncError(err);
+      }
+    );
+  };
+
+  const SortIcon = ({ col }: { col: SortKey }) => {
+    if (sortKey !== col) return <span style={{ opacity: 0.3, marginLeft: 4 }}>↕</span>;
+    return sortDir === 'asc'
+      ? <ChevronUp size={12} style={{ marginLeft: 4 }} />
+      : <ChevronDown size={12} style={{ marginLeft: 4 }} />;
+  };
+
+  const withContacts = companies.filter(c => c.director || c.contact_name).length;
 
   return (
     <div>
       {/* Header */}
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 24 }}>
-        <div>
-          <h1 style={{ fontSize: 24, fontWeight: 700, color: '#0A2540' }}>Leads</h1>
-          <p style={{ fontSize: 13, color: '#8898aa', marginTop: 2 }}>Manage your lead database</p>
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 24 }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+          <h1 style={{ fontSize: 24, fontWeight: 700, color: STRIPE.textPrimary }}>Companies</h1>
+          <span style={{
+            background: '#EEF2FF', color: '#635BFF',
+            padding: '2px 10px', borderRadius: 20, fontSize: 13, fontWeight: 600,
+          }}>
+            {companies.length.toLocaleString()}
+          </span>
         </div>
         <button
+          onClick={handleSync}
+          disabled={syncing}
           style={{
-            background: '#635BFF',
-            color: '#fff',
-            border: 'none',
-            padding: '10px 20px',
-            borderRadius: 8,
-            fontSize: 14,
-            fontWeight: 600,
-            cursor: 'pointer',
+            display: 'flex', alignItems: 'center', gap: 8,
+            padding: '9px 18px', borderRadius: 8, border: 'none',
+            background: syncing ? '#E3E8EE' : STRIPE.primary,
+            color: syncing ? STRIPE.textMuted : '#fff',
+            fontSize: 14, fontWeight: 600, cursor: syncing ? 'not-allowed' : 'pointer',
           }}
-          onMouseEnter={(e) => ((e.target as HTMLElement).style.background = '#5851db')}
-          onMouseLeave={(e) => ((e.target as HTMLElement).style.background = '#635BFF')}
         >
-          + Add Lead
+          <RefreshCw size={14} style={{ animation: syncing ? 'spin 1s linear infinite' : 'none' }} />
+          {syncing ? `Syncing… ${syncProgress.toLocaleString()}${syncTotal ? `/${syncTotal.toLocaleString()}` : ''}` : 'Sync'}
         </button>
       </div>
 
-      {/* Stats */}
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4,1fr)', gap: 16, marginBottom: 24 }}>
-        {stats.map((stat) => (
-          <div
-            key={stat.label}
-            style={{
-              background: '#fff',
-              border: '1px solid #E3E8EE',
-              borderLeft: `3px solid ${stat.borderColor}`,
-              borderRadius: 12,
-              padding: '20px 24px',
-              boxShadow: '0 1px 3px rgba(0,0,0,0.04)',
-            }}
-          >
-            <p style={{ fontSize: 12, fontWeight: 600, color: '#8898aa', textTransform: 'uppercase', letterSpacing: 0.5 }}>
-              {stat.label}
-            </p>
-            <p style={{ fontSize: 28, fontWeight: 700, color: '#0A2540', marginTop: 4 }}>
-              {stat.value.toLocaleString()}
-            </p>
+      {/* Sync progress */}
+      {syncing && syncTotal > 0 && (
+        <div style={{ marginBottom: 16, background: STRIPE.card, border: `1px solid ${STRIPE.border}`, borderRadius: 10, padding: 16 }}>
+          <div style={{ fontSize: 13, color: STRIPE.textSecondary, marginBottom: 8 }}>
+            Syncing companies from DealFlow… {syncProgress.toLocaleString()} / {syncTotal.toLocaleString()}
           </div>
-        ))}
+          <div style={{ height: 6, background: '#E3E8EE', borderRadius: 3, overflow: 'hidden' }}>
+            <div style={{
+              height: '100%',
+              width: `${Math.round((syncProgress / syncTotal) * 100)}%`,
+              background: STRIPE.primary,
+              borderRadius: 3,
+              transition: 'width 0.3s',
+            }} />
+          </div>
+        </div>
+      )}
+
+      {/* Error */}
+      {syncError && (
+        <div style={{
+          marginBottom: 16, padding: '12px 16px', borderRadius: 8,
+          background: '#FEF2F2', border: '1px solid #FECACA', color: STRIPE.danger,
+          fontSize: 13,
+        }}>
+          {syncError}
+        </div>
+      )}
+
+      {/* Stats */}
+      <div style={{ display: 'flex', gap: 12, marginBottom: 24 }}>
+        {[
+          { icon: Building2, label: 'Total', value: companies.length.toLocaleString() },
+          { icon: Globe, label: 'Industries', value: industries.length.toString() },
+          { icon: Globe, label: 'Geographies', value: geos.length.toString() },
+          { icon: Users, label: 'With Contacts', value: withContacts.toLocaleString() },
+        ].map((stat) => {
+          const Icon = stat.icon;
+          return (
+            <div key={stat.label} style={{
+              flex: 1, background: STRIPE.card, border: `1px solid ${STRIPE.border}`,
+              borderRadius: 12, padding: '16px 20px',
+              boxShadow: '0 1px 3px rgba(0,0,0,0.04)',
+            }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 6 }}>
+                <Icon size={14} color={STRIPE.textMuted} />
+                <span style={{ fontSize: 12, color: STRIPE.textMuted, fontWeight: 500 }}>{stat.label}</span>
+              </div>
+              <div style={{ fontSize: 22, fontWeight: 700, color: STRIPE.textPrimary }}>{stat.value}</div>
+            </div>
+          );
+        })}
       </div>
 
       {/* Filters */}
-      <div style={{ display: 'flex', gap: 12, marginBottom: 16 }}>
-        <input
-          placeholder="Search leads..."
-          value={search}
-          onChange={(e) => setSearch(e.target.value)}
-          style={{
-            flex: 1,
-            padding: '10px 14px',
-            border: '1px solid #E3E8EE',
-            borderRadius: 8,
-            fontSize: 14,
-            background: '#fff',
-            color: '#0A2540',
-          }}
-        />
-        <select
-          value={statusFilter}
-          onChange={(e) => setStatusFilter(e.target.value)}
-          style={{
-            padding: '10px 14px',
-            border: '1px solid #E3E8EE',
-            borderRadius: 8,
-            fontSize: 13,
-            background: '#fff',
-            color: '#425466',
-            cursor: 'pointer',
-          }}
-        >
-          <option value="">All Statuses</option>
-          {ALL_STATUSES.map((s) => (
-            <option key={s} value={s}>{s}</option>
-          ))}
-        </select>
-        <select
-          value={industryFilter}
-          onChange={(e) => setIndustryFilter(e.target.value)}
-          style={{
-            padding: '10px 14px',
-            border: '1px solid #E3E8EE',
-            borderRadius: 8,
-            fontSize: 13,
-            background: '#fff',
-            color: '#425466',
-            cursor: 'pointer',
-          }}
-        >
-          <option value="">All Industries</option>
-          {Object.entries(INDUSTRY_LABELS).map(([key, label]) => (
-            <option key={key} value={key}>{label}</option>
-          ))}
-        </select>
+      <div style={{
+        background: STRIPE.card, border: `1px solid ${STRIPE.border}`,
+        borderRadius: 12, padding: '16px 20px', marginBottom: 20,
+        boxShadow: '0 1px 3px rgba(0,0,0,0.04)',
+        display: 'flex', gap: 12, flexWrap: 'wrap' as const, alignItems: 'center',
+      }}>
+        <div style={{ position: 'relative', flex: '1 1 220px' }}>
+          <Search size={14} style={{ position: 'absolute', left: 10, top: '50%', transform: 'translateY(-50%)', color: STRIPE.textMuted }} />
+          <input
+            value={search}
+            onChange={e => setSearch(e.target.value)}
+            placeholder="Search companies…"
+            style={{
+              width: '100%', padding: '8px 12px 8px 32px',
+              border: `1px solid ${STRIPE.border}`, borderRadius: 8,
+              fontSize: 14, color: STRIPE.textPrimary, background: STRIPE.bg,
+              outline: 'none',
+            }}
+          />
+        </div>
+        {[
+          { label: 'Industry', value: filterIndustry, onChange: setFilterIndustry, options: industries },
+          { label: 'Geography', value: filterGeo, onChange: setFilterGeo, options: geos },
+          { label: 'Status', value: filterStatus, onChange: setFilterStatus, options: statuses },
+        ].map(f => (
+          <select
+            key={f.label}
+            value={f.value}
+            onChange={e => f.onChange(e.target.value)}
+            style={{
+              flex: '0 0 160px', padding: '8px 12px',
+              border: `1px solid ${STRIPE.border}`, borderRadius: 8,
+              fontSize: 14, color: f.value ? STRIPE.textPrimary : STRIPE.textMuted,
+              background: STRIPE.bg, outline: 'none', cursor: 'pointer',
+            }}
+          >
+            <option value="">{f.label}: All</option>
+            {f.options.map(o => <option key={o} value={o}>{o}</option>)}
+          </select>
+        ))}
       </div>
-
-      {/* Results count */}
-      <p style={{ fontSize: 13, color: '#8898aa', marginBottom: 12 }}>
-        {filtered.length.toLocaleString()} {filtered.length === 1 ? 'lead' : 'leads'}
-        {search || statusFilter || industryFilter ? ' (filtered)' : ''}
-      </p>
 
       {/* Table */}
-      <div style={{ background: '#fff', border: '1px solid #E3E8EE', borderRadius: 12, overflow: 'hidden', boxShadow: '0 1px 3px rgba(0,0,0,0.04)' }}>
-        {filtered.length === 0 ? (
-          <div style={{ padding: '60px 24px', textAlign: 'center', color: '#8898aa' }}>
-            <div style={{ fontSize: 32, marginBottom: 12 }}>🐕</div>
-            <p style={{ fontSize: 15, fontWeight: 600, color: '#425466' }}>No leads found</p>
-            <p style={{ fontSize: 13, marginTop: 4 }}>
-              {search || statusFilter || industryFilter ? 'Try adjusting your filters.' : 'Import leads or add one manually.'}
-            </p>
+      {companies.length === 0 ? (
+        <div style={{
+          background: STRIPE.card, border: `1px solid ${STRIPE.border}`,
+          borderRadius: 12, padding: '60px 40px', textAlign: 'center',
+          boxShadow: '0 1px 3px rgba(0,0,0,0.04)',
+        }}>
+          <Building2 size={40} color={STRIPE.border} style={{ margin: '0 auto 16px' }} />
+          <div style={{ fontSize: 16, fontWeight: 600, color: STRIPE.textPrimary, marginBottom: 8 }}>
+            No companies synced yet
           </div>
-        ) : (
-          <table style={{ width: '100%', borderCollapse: 'collapse' }}>
-            <thead>
-              <tr style={{ background: '#F6F9FC' }}>
-                {['Company', 'Contact', 'Location', 'Industry', 'Phone', 'Status', 'Score'].map((col) => (
-                  <th
-                    key={col}
-                    style={{
-                      padding: '12px 16px',
-                      textAlign: 'left',
-                      fontSize: 12,
-                      fontWeight: 600,
-                      color: '#8898aa',
-                      textTransform: 'uppercase',
-                      letterSpacing: 0.5,
-                      borderBottom: '1px solid #E3E8EE',
-                      whiteSpace: 'nowrap',
-                    }}
-                  >
-                    {col}
-                  </th>
-                ))}
-              </tr>
-            </thead>
-            <tbody>
-              {filtered.map((lead) => (
-                <tr
-                  key={lead.id}
-                  style={{ borderBottom: '1px solid #E3E8EE', cursor: 'pointer' }}
-                  onClick={() => navigate(`/leads/${lead.id}`)}
-                  onMouseEnter={(e) => (e.currentTarget.style.background = '#F6F9FC')}
-                  onMouseLeave={(e) => (e.currentTarget.style.background = '#fff')}
-                >
-                  <td style={{ padding: '14px 16px', fontSize: 14, color: '#0A2540', fontWeight: 600 }}>
-                    {lead.company_name}
-                    {lead.website && (
-                      <a
-                        href={lead.website.startsWith('http') ? lead.website : `https://${lead.website}`}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        onClick={(e) => e.stopPropagation()}
-                        style={{ marginLeft: 6, fontSize: 11, color: '#635BFF', textDecoration: 'none' }}
-                      >
-                        ↗
-                      </a>
-                    )}
-                  </td>
-                  <td style={{ padding: '14px 16px', fontSize: 13, color: '#425466' }}>
-                    <div>{lead.contact_name || '—'}</div>
-                    {lead.contact_title && (
-                      <div style={{ fontSize: 12, color: '#8898aa' }}>{lead.contact_title}</div>
-                    )}
-                  </td>
-                  <td style={{ padding: '14px 16px', fontSize: 13, color: '#425466' }}>
-                    {[lead.city, lead.state].filter(Boolean).join(', ') || '—'}
-                  </td>
-                  <td style={{ padding: '14px 16px', fontSize: 13, color: '#425466' }}>
-                    {INDUSTRY_LABELS[lead.industry ?? ''] ?? lead.industry ?? '—'}
-                  </td>
-                  <td style={{ padding: '14px 16px', fontSize: 13, color: '#425466', whiteSpace: 'nowrap' }}>
-                    {formatPhone(lead.mobile_phone || lead.phone_hq) || '—'}
-                  </td>
-                  <td style={{ padding: '14px 16px' }}>
-                    <StatusBadge status={lead.status} />
-                  </td>
-                  <td style={{ padding: '14px 16px' }}>
-                    <ScoreBadge score={lead.quality_score} />
-                  </td>
+          <div style={{ fontSize: 14, color: STRIPE.textMuted }}>
+            Go to Settings to connect your DealFlow account.
+          </div>
+        </div>
+      ) : (
+        <div style={{
+          background: STRIPE.card, border: `1px solid ${STRIPE.border}`,
+          borderRadius: 12, overflow: 'hidden',
+          boxShadow: '0 1px 3px rgba(0,0,0,0.04)',
+        }}>
+          <div style={{ overflowX: 'auto' }}>
+            <table style={{ width: '100%', borderCollapse: 'collapse' as const }}>
+              <thead>
+                <tr style={{ background: STRIPE.tableHeaderBg, borderBottom: `1px solid ${STRIPE.border}` }}>
+                  {[
+                    { label: 'Company Name', key: 'company_name' as SortKey },
+                    { label: 'State/Country', key: 'geography' as SortKey },
+                    { label: 'Industry', key: 'industry' as SortKey },
+                    { label: 'Employees', key: 'employees' as SortKey },
+                    { label: 'Revenue', key: 'revenue' as SortKey },
+                    { label: 'P/L', key: 'profit' as SortKey },
+                    { label: 'Assets', key: 'assets' as SortKey },
+                    { label: 'Status', key: 'status' as SortKey },
+                    { label: 'Director', key: 'director' as SortKey },
+                  ].map(col => (
+                    <th
+                      key={col.key}
+                      onClick={() => handleSort(col.key)}
+                      style={{
+                        padding: '11px 16px', textAlign: 'left', fontSize: 12,
+                        fontWeight: 600, color: STRIPE.textMuted, cursor: 'pointer',
+                        userSelect: 'none', whiteSpace: 'nowrap',
+                        letterSpacing: '0.02em',
+                      }}
+                    >
+                      <span style={{ display: 'inline-flex', alignItems: 'center' }}>
+                        {col.label}
+                        <SortIcon col={col.key} />
+                      </span>
+                    </th>
+                  ))}
                 </tr>
-              ))}
-            </tbody>
-          </table>
-        )}
-      </div>
+              </thead>
+              <tbody>
+                {filtered.map((c, i) => (
+                  <tr
+                    key={c.id}
+                    onClick={() => navigate(`/leads/${c.id}`)}
+                    style={{
+                      borderBottom: i < filtered.length - 1 ? `1px solid ${STRIPE.border}` : 'none',
+                      cursor: 'pointer',
+                      transition: 'background 0.1s',
+                    }}
+                    onMouseEnter={e => (e.currentTarget.style.background = STRIPE.tableRowHover)}
+                    onMouseLeave={e => (e.currentTarget.style.background = 'transparent')}
+                  >
+                    <td style={{ padding: '12px 16px', fontSize: 14, fontWeight: 600, color: STRIPE.textPrimary }}>
+                      {c.company_name}
+                    </td>
+                    <td style={{ padding: '12px 16px', fontSize: 13, color: STRIPE.textSecondary }}>
+                      {c.geography || c.state || '—'}
+                    </td>
+                    <td style={{ padding: '12px 16px', fontSize: 13, color: STRIPE.textSecondary }}>
+                      {c.industry || '—'}
+                    </td>
+                    <td style={{ padding: '12px 16px', fontSize: 13, color: STRIPE.textSecondary }}>
+                      {c.employees || '—'}
+                    </td>
+                    <td style={{ padding: '12px 16px', fontSize: 13, color: STRIPE.textSecondary }}>
+                      {c.revenue || '—'}
+                    </td>
+                    <td style={{ padding: '12px 16px', fontSize: 13, color: STRIPE.textSecondary }}>
+                      {c.profit || '—'}
+                    </td>
+                    <td style={{ padding: '12px 16px', fontSize: 13, color: STRIPE.textSecondary }}>
+                      {c.assets || '—'}
+                    </td>
+                    <td style={{ padding: '12px 16px' }}>
+                      <StatusBadge status={c.status} />
+                    </td>
+                    <td style={{ padding: '12px 16px', fontSize: 13, color: STRIPE.textSecondary }}>
+                      {c.director || c.contact_name || '—'}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+          {filtered.length === 0 && companies.length > 0 && (
+            <div style={{ padding: '32px', textAlign: 'center', color: STRIPE.textMuted, fontSize: 14 }}>
+              No companies match your filters.
+            </div>
+          )}
+        </div>
+      )}
+
+      <style>{`
+        @keyframes spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
+      `}</style>
     </div>
   );
 }

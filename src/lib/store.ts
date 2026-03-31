@@ -1,18 +1,16 @@
 import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
 
-interface ApiKeys {
-  openai: string;
-  anthropic: string;
-}
-
 interface SettingsState {
-  apiKeys: ApiKeys;
   dealflowUrl: string;
+  apiKey: string;
+  lastSyncTime?: string;
+  lastSyncCount?: number;
   columnWidths: Record<string, number>;
   visibleColumns: string[];
-  setApiKeys: (keys: Partial<ApiKeys>) => void;
   setDealflowUrl: (url: string) => void;
+  setApiKey: (key: string) => void;
+  setLastSync: (time: string, count: number) => void;
   setColumnWidths: (widths: Record<string, number>) => void;
   setVisibleColumns: (cols: string[]) => void;
   updateColumnWidth: (col: string, width: number) => void;
@@ -21,13 +19,15 @@ interface SettingsState {
 export const useSettingsStore = create<SettingsState>()(
   persist(
     (set) => ({
-      apiKeys: { openai: '', anthropic: '' },
       dealflowUrl: 'https://dealflowa9.netlify.app',
+      apiKey: '',
+      lastSyncTime: undefined,
+      lastSyncCount: undefined,
       columnWidths: {},
       visibleColumns: [],
-      setApiKeys: (keys) =>
-        set((state) => ({ apiKeys: { ...state.apiKeys, ...keys } })),
       setDealflowUrl: (url) => set({ dealflowUrl: url }),
+      setApiKey: (key) => set({ apiKey: key }),
+      setLastSync: (time, count) => set({ lastSyncTime: time, lastSyncCount: count }),
       setColumnWidths: (widths) => set({ columnWidths: widths }),
       setVisibleColumns: (cols) => set({ visibleColumns: cols }),
       updateColumnWidth: (col, width) =>
