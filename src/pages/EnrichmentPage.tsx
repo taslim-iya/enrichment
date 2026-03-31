@@ -2,10 +2,25 @@ import { useState, useEffect } from 'react';
 import {
   Zap, Clock, CheckCircle, AlertCircle, Globe, Users,
   Star, Search, ExternalLink, Play, BarChart3,
-  Newspaper, Mail, TrendingUp,
+  Newspaper, Mail, TrendingUp, Building2, Phone, Briefcase,
+  DollarSign, MapPin, Share2, Cpu, FileText,
 } from 'lucide-react';
 import { db, type Company, type EnrichmentLog, deriveTimezone } from '../lib/db';
 import { useSettingsStore } from '../lib/store';
+import {
+  enrichCompanyWebsite,
+  enrichEmailDiscovery,
+  enrichFunding,
+  enrichGoogleBusiness,
+  enrichJobPostings,
+  enrichLinkedInCompany,
+  enrichPhoneValidation,
+  enrichSecEdgar,
+  enrichSocialSignals,
+  enrichTechStack,
+  enrichWebResearch,
+  type EnrichmentSourceResult,
+} from '../lib/enrichmentSources';
 
 // ─── Styles ──────────────────────────────────────────────────────────────────
 
@@ -170,12 +185,28 @@ const ENRICHMENT_OPTIONS = [
   { key: 'news',          label: 'Company News',           desc: 'AI-powered news and events for each company', icon: '📰', category: 'AI' },
   { key: 'linkedin',      label: 'LinkedIn Profiles',      desc: 'Enrich contacts with LinkedIn profile data', icon: '🔗', category: 'AI' },
   { key: 'emailVerify',   label: 'Email Verification',     desc: 'Verify and score email addresses', icon: '✉️', category: 'AI' },
+  // ── New AI enrichment sources ──
+  { key: 'websiteAnalysis',  label: 'Website Analysis',         desc: 'AI analysis of company website, products, and tech', icon: '🌐', category: 'Intelligence' },
+  { key: 'googleBusiness',   label: 'Google Business',          desc: 'Ratings, reviews, address, hours', icon: '🗺️', category: 'Intelligence' },
+  { key: 'socialSignals',    label: 'Social Media Presence',    desc: 'Find Twitter, LinkedIn, Facebook, GitHub, Instagram', icon: '📱', category: 'Intelligence' },
+  { key: 'techStack',        label: 'Technology Stack',         desc: 'Identify tech stack via AI (Wappalyzer-style)', icon: '⚙️', category: 'Intelligence' },
+  { key: 'secEdgar',         label: 'SEC Edgar Filings',        desc: 'Research SEC filings for US public companies', icon: '📋', category: 'Intelligence' },
+  { key: 'emailDiscovery',   label: 'Email Pattern Discovery',  desc: 'Find likely email patterns and addresses', icon: '✉️', category: 'Contact' },
+  { key: 'phoneValidation',  label: 'Phone Validation',         desc: 'Validate phone numbers with regex + AI', icon: '📞', category: 'Contact' },
+  { key: 'jobPostings',      label: 'Job Postings & Hiring',    desc: 'Hiring signals, open roles, growth indicators', icon: '💼', category: 'Contact' },
+  { key: 'fundingResearch',  label: 'Funding & Investors',      desc: 'Research funding rounds, VCs, and financial backing', icon: '💰', category: 'Research' },
+  { key: 'webResearch',      label: 'Web Research',             desc: 'Deep AI research: news, competitors, opportunities', icon: '🔍', category: 'Research' },
+  { key: 'linkedinCompany',  label: 'LinkedIn Company Profile', desc: 'Company LinkedIn page, employee count, recent posts', icon: '🔗', category: 'Research' },
 ];
 
-function BatchEnrichmentPanel({ onRunTimezone, onRunMissingData, onRunApolloPeople, onRunDirectors, onRunApolloCompany, onRunScoring, onRunNews, onRunLinkedIn, onRunEmailVerify, anyRunning }: {
+function BatchEnrichmentPanel({ onRunTimezone, onRunMissingData, onRunApolloPeople, onRunDirectors, onRunApolloCompany, onRunScoring, onRunNews, onRunLinkedIn, onRunEmailVerify, onRunWebsiteAnalysis, onRunGoogleBusiness, onRunSocialSignals, onRunTechStack, onRunSecEdgar, onRunEmailDiscovery, onRunPhoneValidation, onRunJobPostings, onRunFunding, onRunWebResearch, onRunLinkedInCompany, anyRunning }: {
   onRunTimezone: () => void; onRunMissingData: () => void; onRunApolloPeople: () => void;
   onRunDirectors: () => void; onRunApolloCompany: () => void; onRunScoring: () => void;
   onRunNews: () => void; onRunLinkedIn: () => void; onRunEmailVerify: () => void;
+  onRunWebsiteAnalysis: () => void; onRunGoogleBusiness: () => void; onRunSocialSignals: () => void;
+  onRunTechStack: () => void; onRunSecEdgar: () => void; onRunEmailDiscovery: () => void;
+  onRunPhoneValidation: () => void; onRunJobPostings: () => void; onRunFunding: () => void;
+  onRunWebResearch: () => void; onRunLinkedInCompany: () => void;
   anyRunning: boolean;
 }) {
   const [selected, setSelected] = useState<Set<string>>(new Set());
@@ -204,13 +235,25 @@ function BatchEnrichmentPanel({ onRunTimezone, onRunMissingData, onRunApolloPeop
     timezone: onRunTimezone, missing: onRunMissingData, apolloPeople: onRunApolloPeople,
     directors: onRunDirectors, apolloCompany: onRunApolloCompany, scoring: onRunScoring,
     news: onRunNews, linkedin: onRunLinkedIn, emailVerify: onRunEmailVerify,
+    websiteAnalysis: onRunWebsiteAnalysis, googleBusiness: onRunGoogleBusiness,
+    socialSignals: onRunSocialSignals, techStack: onRunTechStack, secEdgar: onRunSecEdgar,
+    emailDiscovery: onRunEmailDiscovery, phoneValidation: onRunPhoneValidation,
+    jobPostings: onRunJobPostings, fundingResearch: onRunFunding,
+    webResearch: onRunWebResearch, linkedinCompany: onRunLinkedInCompany,
   };
 
   const runBatch = async () => {
     if (selected.size === 0 || running) return;
     setRunning(true);
     // Run in order: basic first, then apollo, then AI
-    const order = ['timezone', 'missing', 'scoring', 'apolloPeople', 'directors', 'apolloCompany', 'news', 'linkedin', 'emailVerify'];
+    const order = [
+      'timezone', 'missing', 'scoring',
+      'apolloPeople', 'directors', 'apolloCompany',
+      'news', 'linkedin', 'emailVerify',
+      'websiteAnalysis', 'googleBusiness', 'socialSignals', 'techStack', 'secEdgar',
+      'emailDiscovery', 'phoneValidation', 'jobPostings',
+      'fundingResearch', 'webResearch', 'linkedinCompany',
+    ];
     for (const key of order) {
       if (selected.has(key) && runMap[key]) {
         try { await runMap[key](); } catch { /* continue */ }
@@ -219,7 +262,7 @@ function BatchEnrichmentPanel({ onRunTimezone, onRunMissingData, onRunApolloPeop
     setRunning(false);
   };
 
-  const categories = ['Basic', 'Apollo', 'AI'];
+  const categories = ['Basic', 'Apollo', 'AI', 'Intelligence', 'Contact', 'Research'];
 
   return (
     <div style={{ background: S.card, border: `1px solid ${S.border}`, borderRadius: 12, padding: 24, marginBottom: 20, boxShadow: '0 1px 3px rgba(0,0,0,0.04)' }}>
@@ -318,10 +361,10 @@ export default function EnrichmentPage() {
   const [newsResult, setNewsResult] = useState<string | null>(null);
 
   // LinkedIn profile enrichment
-  const [linkedinRunning, setExternalLinkRunning] = useState(false);
-  const [linkedinProgress, setExternalLinkProgress] = useState<{ value: number; total: number } | null>(null);
-  const [linkedinResult, setExternalLinkResult] = useState<string | null>(null);
-  const [linkedinWarning, setExternalLinkWarning] = useState<string | null>(null);
+  const [linkedinRunning, setLinkedinRunning] = useState(false);
+  const [linkedinProgress, setLinkedinProgress] = useState<{ value: number; total: number } | null>(null);
+  const [linkedinResult, setLinkedinResult] = useState<string | null>(null);
+  const [linkedinWarning, setLinkedinWarning] = useState<string | null>(null);
 
   // Email verification
   const [emailVerifyRunning, setEmailVerifyRunning] = useState(false);
@@ -1046,7 +1089,259 @@ export default function EnrichmentPage() {
     }
   }
 
-  const anyRunning = tzRunning || missingRunning || apolloPeopleRunning || apolloCompanyRunning || aiScoreRunning || localScoreRunning || newsRunning || linkedinRunning || emailVerifyRunning;
+  // ── New AI Enrichment State ───────────────────────────────────────────────
+
+  const [websiteAnalysisRunning, setWebsiteAnalysisRunning] = useState(false);
+  const [websiteAnalysisProgress, setWebsiteAnalysisProgress] = useState<{ value: number; total: number } | null>(null);
+  const [websiteAnalysisResult, setWebsiteAnalysisResult] = useState<string | null>(null);
+
+  const [googleBusinessRunning, setGoogleBusinessRunning] = useState(false);
+  const [googleBusinessProgress, setGoogleBusinessProgress] = useState<{ value: number; total: number } | null>(null);
+  const [googleBusinessResult, setGoogleBusinessResult] = useState<string | null>(null);
+
+  const [socialSignalsRunning, setSocialSignalsRunning] = useState(false);
+  const [socialSignalsProgress, setSocialSignalsProgress] = useState<{ value: number; total: number } | null>(null);
+  const [socialSignalsResult, setSocialSignalsResult] = useState<string | null>(null);
+
+  const [techStackRunning, setTechStackRunning] = useState(false);
+  const [techStackProgress, setTechStackProgress] = useState<{ value: number; total: number } | null>(null);
+  const [techStackResult, setTechStackResult] = useState<string | null>(null);
+
+  const [secEdgarRunning, setSecEdgarRunning] = useState(false);
+  const [secEdgarProgress, setSecEdgarProgress] = useState<{ value: number; total: number } | null>(null);
+  const [secEdgarResult, setSecEdgarResult] = useState<string | null>(null);
+
+  const [emailDiscoveryRunning, setEmailDiscoveryRunning] = useState(false);
+  const [emailDiscoveryProgress, setEmailDiscoveryProgress] = useState<{ value: number; total: number } | null>(null);
+  const [emailDiscoveryResult, setEmailDiscoveryResult] = useState<string | null>(null);
+
+  const [phoneValidationRunning, setPhoneValidationRunning] = useState(false);
+  const [phoneValidationProgress, setPhoneValidationProgress] = useState<{ value: number; total: number } | null>(null);
+  const [phoneValidationResult, setPhoneValidationResult] = useState<string | null>(null);
+
+  const [jobPostingsRunning, setJobPostingsRunning] = useState(false);
+  const [jobPostingsProgress, setJobPostingsProgress] = useState<{ value: number; total: number } | null>(null);
+  const [jobPostingsResult, setJobPostingsResult] = useState<string | null>(null);
+
+  const [fundingRunning, setFundingRunning] = useState(false);
+  const [fundingProgress, setFundingProgress] = useState<{ value: number; total: number } | null>(null);
+  const [fundingResult, setFundingResult] = useState<string | null>(null);
+
+  const [webResearchRunning, setWebResearchRunning] = useState(false);
+  const [webResearchProgress, setWebResearchProgress] = useState<{ value: number; total: number } | null>(null);
+  const [webResearchResult, setWebResearchResult] = useState<string | null>(null);
+
+  const [linkedinCompanyRunning, setLinkedinCompanyRunning] = useState(false);
+  const [linkedinCompanyProgress, setLinkedinCompanyProgress] = useState<{ value: number; total: number } | null>(null);
+  const [linkedinCompanyResult, setLinkedinCompanyResult] = useState<string | null>(null);
+
+  // ── Generic AI enrichment batch runner ───────────────────────────────────
+
+  async function runAiEnrichmentBatch<T>(opts: {
+    sourceFn: (company: Company, apiKey: string) => Promise<EnrichmentSourceResult>;
+    fieldName: string;
+    filterFn?: (c: Company) => boolean;
+    setRunning: (v: boolean) => void;
+    setProgress: (v: { value: number; total: number } | null) => void;
+    setResult: (v: string | null) => void;
+    logSource: string;
+    maxBatch?: number;
+  }): Promise<void> {
+    if (!openaiKey) {
+      opts.setResult('OpenAI API key not configured — go to Settings.');
+      return;
+    }
+    opts.setRunning(true);
+    opts.setProgress(null);
+    opts.setResult(null);
+
+    try {
+      const all = await db.companies.toArray();
+      const filter = opts.filterFn || ((c: Company) => !(c as Record<string, unknown>)[opts.fieldName]);
+      const toEnrich = all.filter(filter).slice(0, opts.maxBatch ?? 50);
+      const total = toEnrich.length;
+      opts.setProgress({ value: 0, total });
+
+      if (total === 0) {
+        opts.setResult('All companies already enriched for this source.');
+        return;
+      }
+
+      let enriched = 0;
+      for (let i = 0; i < total; i++) {
+        const company = toEnrich[i];
+        try {
+          const result = await opts.sourceFn(company, openaiKey);
+          if (company.id != null && Object.keys(result.data).length > 0) {
+            await db.companies.update(company.id, result.data as Partial<Company>);
+            enriched++;
+            await addLog({
+              entity_type: 'company',
+              entity_id: company.id,
+              source: opts.logSource,
+              success: true,
+              fields_updated: result.fields_updated.join(','),
+              duration_ms: 0,
+              created_at: new Date().toISOString(),
+            });
+          }
+        } catch {
+          // Skip individual failures
+        }
+        opts.setProgress({ value: i + 1, total });
+        if (i < total - 1) await new Promise(r => setTimeout(r, 1000));
+      }
+      opts.setResult(`Enriched ${enriched.toLocaleString()} of ${total} companies`);
+    } finally {
+      opts.setRunning(false);
+    }
+  }
+
+  // ── Website Analysis ──────────────────────────────────────────────────────
+
+  async function runWebsiteAnalysis() {
+    await runAiEnrichmentBatch({
+      sourceFn: enrichCompanyWebsite,
+      fieldName: 'website_analysis',
+      setRunning: setWebsiteAnalysisRunning,
+      setProgress: setWebsiteAnalysisProgress,
+      setResult: setWebsiteAnalysisResult,
+      logSource: 'website-analysis',
+    });
+  }
+
+  // ── Google Business ───────────────────────────────────────────────────────
+
+  async function runGoogleBusinessEnrichment() {
+    await runAiEnrichmentBatch({
+      sourceFn: enrichGoogleBusiness,
+      fieldName: 'google_business',
+      setRunning: setGoogleBusinessRunning,
+      setProgress: setGoogleBusinessProgress,
+      setResult: setGoogleBusinessResult,
+      logSource: 'google-business',
+    });
+  }
+
+  // ── Social Signals ────────────────────────────────────────────────────────
+
+  async function runSocialSignalsEnrichment() {
+    await runAiEnrichmentBatch({
+      sourceFn: enrichSocialSignals,
+      fieldName: 'social_media',
+      setRunning: setSocialSignalsRunning,
+      setProgress: setSocialSignalsProgress,
+      setResult: setSocialSignalsResult,
+      logSource: 'social-signals',
+    });
+  }
+
+  // ── Tech Stack ────────────────────────────────────────────────────────────
+
+  async function runTechStackEnrichment() {
+    await runAiEnrichmentBatch({
+      sourceFn: enrichTechStack,
+      fieldName: 'tech_stack',
+      setRunning: setTechStackRunning,
+      setProgress: setTechStackProgress,
+      setResult: setTechStackResult,
+      logSource: 'tech-stack',
+    });
+  }
+
+  // ── SEC Edgar ─────────────────────────────────────────────────────────────
+
+  async function runSecEdgarEnrichment() {
+    await runAiEnrichmentBatch({
+      sourceFn: enrichSecEdgar,
+      fieldName: 'sec_filings',
+      setRunning: setSecEdgarRunning,
+      setProgress: setSecEdgarProgress,
+      setResult: setSecEdgarResult,
+      logSource: 'sec-edgar',
+    });
+  }
+
+  // ── Email Discovery ───────────────────────────────────────────────────────
+
+  async function runEmailDiscoveryEnrichment() {
+    await runAiEnrichmentBatch({
+      sourceFn: enrichEmailDiscovery,
+      fieldName: 'email_patterns',
+      setRunning: setEmailDiscoveryRunning,
+      setProgress: setEmailDiscoveryProgress,
+      setResult: setEmailDiscoveryResult,
+      logSource: 'email-discovery',
+    });
+  }
+
+  // ── Phone Validation ──────────────────────────────────────────────────────
+
+  async function runPhoneValidationEnrichment() {
+    await runAiEnrichmentBatch({
+      sourceFn: enrichPhoneValidation,
+      fieldName: 'phone_validation',
+      filterFn: (c: Company) => !!(c.phone || (c as Record<string, unknown>).director_phone || (c as Record<string, unknown>).contact_phone),
+      setRunning: setPhoneValidationRunning,
+      setProgress: setPhoneValidationProgress,
+      setResult: setPhoneValidationResult,
+      logSource: 'phone-validation',
+    });
+  }
+
+  // ── Job Postings ──────────────────────────────────────────────────────────
+
+  async function runJobPostingsEnrichment() {
+    await runAiEnrichmentBatch({
+      sourceFn: enrichJobPostings,
+      fieldName: 'job_postings',
+      setRunning: setJobPostingsRunning,
+      setProgress: setJobPostingsProgress,
+      setResult: setJobPostingsResult,
+      logSource: 'job-postings',
+    });
+  }
+
+  // ── Funding Research ──────────────────────────────────────────────────────
+
+  async function runFundingEnrichment() {
+    await runAiEnrichmentBatch({
+      sourceFn: enrichFunding,
+      fieldName: 'funding_info',
+      setRunning: setFundingRunning,
+      setProgress: setFundingProgress,
+      setResult: setFundingResult,
+      logSource: 'funding',
+    });
+  }
+
+  // ── Web Research ──────────────────────────────────────────────────────────
+
+  async function runWebResearchEnrichment() {
+    await runAiEnrichmentBatch({
+      sourceFn: enrichWebResearch,
+      fieldName: 'web_research',
+      setRunning: setWebResearchRunning,
+      setProgress: setWebResearchProgress,
+      setResult: setWebResearchResult,
+      logSource: 'web-research',
+    });
+  }
+
+  // ── LinkedIn Company ──────────────────────────────────────────────────────
+
+  async function runLinkedInCompanyEnrichment() {
+    await runAiEnrichmentBatch({
+      sourceFn: enrichLinkedInCompany,
+      fieldName: 'linkedin_company',
+      setRunning: setLinkedinCompanyRunning,
+      setProgress: setLinkedinCompanyProgress,
+      setResult: setLinkedinCompanyResult,
+      logSource: 'linkedin-company',
+    });
+  }
+
+  const anyRunning = tzRunning || missingRunning || apolloPeopleRunning || apolloCompanyRunning || aiScoreRunning || localScoreRunning || newsRunning || linkedinRunning || emailVerifyRunning || websiteAnalysisRunning || googleBusinessRunning || socialSignalsRunning || techStackRunning || secEdgarRunning || emailDiscoveryRunning || phoneValidationRunning || jobPostingsRunning || fundingRunning || webResearchRunning || linkedinCompanyRunning;
 
   return (
     <div style={{ maxWidth: 800 }}>
@@ -1249,7 +1544,7 @@ export default function EnrichmentPage() {
 
       {/* ── Card 7: LinkedIn Profiles ────────────────────────── */}
       <EnrichmentCard
-        icon={<Linkedin size={20} color="#0A66C2" />}
+        icon={<ExternalLink size={20} color="#0A66C2" />}
         iconBg="#EFF6FF"
         title="LinkedIn Profiles"
         description="Enriches contacts using Apollo API (people/match endpoint) for full name, title, headline, and location. Falls back to OpenAI if no Apollo key. Processes companies with existing LinkedIn URLs on contacts. Rate limited to 1 req/sec."
