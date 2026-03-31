@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react';
-import { Users, Plus, Trash2 } from 'lucide-react';
+import { Users, Plus, Trash2, PhoneCall, Building2 } from 'lucide-react';
+import { useNavigate } from 'react-router-dom';
 import { db, type TeamMember } from '../lib/db';
 import { AVATAR_COLORS } from '../lib/constants';
 
@@ -8,14 +9,22 @@ const STRIPE = {
   border: '#E3E8EE',
   primary: '#635BFF',
   danger: '#E25950',
+  success: '#059669',
   textPrimary: '#0A2540',
   textSecondary: '#425466',
   textMuted: '#8898aa',
   bg: '#F6F9FC',
 };
 
+interface MemberStats {
+  assignedCount: number;
+  callsMade: number;
+}
+
 export default function TeamPage() {
+  const navigate = useNavigate();
   const [members, setMembers] = useState<TeamMember[]>([]);
+  const [memberStats, setMemberStats] = useState<Record<number, MemberStats>>({});
   const [showForm, setShowForm] = useState(false);
   const [name, setName] = useState('');
   const [email, setEmail] = useState('');
@@ -24,6 +33,17 @@ export default function TeamPage() {
   const loadMembers = async () => {
     const all = await db.team_members.toArray();
     setMembers(all);
+
+    // Load stats for each member
+    const stats: Record<number, MemberStats> = {};
+    for (const member of all) {
+      if (member.id == null) continue;
+      const assignments = await db.lead_assignments.where('team_member_id').equals(member.id).toArray();
+      const callEntries = await db.call_sheet_entries.where('team_member_id').equals(member.id).toArray();
+      const callsMade = callEntries.filter(e => e.status !== 'Not Called').length;
+      stats[member.id] = { assignedCount: assignments.length, callsMade };
+    }
+    setMemberStats(stats);
   };
 
   useEffect(() => { loadMembers(); }, []);
@@ -161,46 +181,85 @@ export default function TeamPage() {
           <div style={{ fontSize: 14, color: STRIPE.textMuted }}>Add your first team member to get started.</div>
         </div>
       ) : (
-        <div style={{
-          background: STRIPE.card, border: `1px solid ${STRIPE.border}`,
-          borderRadius: 12, overflow: 'hidden',
-          boxShadow: '0 1px 3px rgba(0,0,0,0.04)',
-        }}>
-          {members.map((member, i) => (
-            <div key={member.id} style={{
-              display: 'flex', alignItems: 'center', padding: '14px 20px',
-              borderBottom: i < members.length - 1 ? `1px solid ${STRIPE.border}` : 'none',
-            }}>
-              <div style={{
-                width: 40, height: 40, borderRadius: 20,
-                background: member.avatar_color || STRIPE.primary,
-                display: 'flex', alignItems: 'center', justifyContent: 'center',
-                color: '#fff', fontSize: 16, fontWeight: 700,
-                marginRight: 14, flexShrink: 0,
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+          {members.map((member) => {
+            const stats = memberStats[member.id!] || { assignedCount: 0, callsMade: 0 };
+            return (
+              <div key={member.id} style={{
+                background: STRIPE.card, border: `1px solid ${STRIPE.border}`,
+                borderRadius: 12, padding: '18px 20px',
+                boxShadow: '0 1px 3px rgba(0,0,0,0.04)',
+                display: 'flex', alignItems: 'center', gap: 16,
               }}>
-                {member.name.charAt(0).toUpperCase()}
-              </div>
-              <div style={{ flex: 1 }}>
-                <div style={{ fontSize: 15, fontWeight: 600, color: STRIPE.textPrimary }}>{member.name}</div>
-                <div style={{ display: 'flex', gap: 12, marginTop: 2 }}>
-                  <span style={{ fontSize: 12, color: STRIPE.textMuted }}>{member.role}</span>
-                  {member.email && (
-                    <span style={{ fontSize: 12, color: STRIPE.textMuted }}>{member.email}</span>
-                  )}
+                {/* Avatar */}
+                <div style={{
+                  width: 44, height: 44, borderRadius: 22,
+                  background: member.avatar_color || STRIPE.primary,
+                  display: 'flex', alignItems: 'center', justifyContent: 'center',
+                  color: '#fff', fontSize: 18, fontWeight: 700,
+                  flexShrink: 0,
+                }}>
+                  {member.name.charAt(0).toUpperCase()}
+                </div>
+
+                {/* Info */}
+                <div style={{ flex: 1 }}>
+                  <div style={{ fontSize: 15, fontWeight: 600, color: STRIPE.textPrimary }}>{member.name}</div>
+                  <div style={{ display: 'flex', gap: 12, marginTop: 2, flexWrap: 'wrap' as const }}>
+                    <span style={{ fontSize: 12, color: STRIPE.textMuted }}>{member.role}</span>
+                    {member.email && (
+                      <span style={{ fontSize: 12, color: STRIPE.textMuted }}>{member.email}</span>
+                    )}
+                  </div>
+                </div>
+
+                {/* Stats */}
+                <div style={{ display: 'flex', gap: 16, alignItems: 'center' }}>
+                  <div style={{ textAlign: 'center' as const }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 4, justifyContent: 'center' }}>
+                      <Building2 size={12} color={STRIPE.textMuted} />
+                      <span style={{ fontSize: 16, fontWeight: 700, color: STRIPE.textPrimary }}>{stats.assignedCount}</span>
+                    </div>
+                    <div style={{ fontSize: 11, color: STRIPE.textMuted }}>Assigned</div>
+                  </div>
+                  <div style={{ width: 1, height: 32, background: STRIPE.border }} />
+                  <div style={{ textAlign: 'center' as const }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 4, justifyContent: 'center' }}>
+                      <PhoneCall size={12} color={STRIPE.success} />
+                      <span style={{ fontSize: 16, fontWeight: 700, color: STRIPE.success }}>{stats.callsMade}</span>
+                    </div>
+                    <div style={{ fontSize: 11, color: STRIPE.textMuted }}>Calls Made</div>
+                  </div>
+                </div>
+
+                {/* Actions */}
+                <div style={{ display: 'flex', gap: 8, flexShrink: 0 }}>
+                  <button
+                    onClick={() => navigate(`/call-sheet?member=${member.id}`)}
+                    style={{
+                      display: 'flex', alignItems: 'center', gap: 6,
+                      padding: '7px 14px', borderRadius: 7,
+                      border: `1px solid ${STRIPE.primary}`,
+                      background: '#EEF2FF', color: STRIPE.primary,
+                      fontSize: 12, fontWeight: 600, cursor: 'pointer',
+                    }}
+                  >
+                    <PhoneCall size={12} /> View Call Sheet
+                  </button>
+                  <button
+                    onClick={() => member.id != null && handleDelete(member.id)}
+                    style={{
+                      background: 'none', border: 'none', cursor: 'pointer',
+                      color: STRIPE.textMuted, padding: 6,
+                      display: 'flex', alignItems: 'center',
+                    }}
+                  >
+                    <Trash2 size={14} />
+                  </button>
                 </div>
               </div>
-              <button
-                onClick={() => member.id != null && handleDelete(member.id)}
-                style={{
-                  background: 'none', border: 'none', cursor: 'pointer',
-                  color: STRIPE.textMuted, padding: 4,
-                  display: 'flex', alignItems: 'center',
-                }}
-              >
-                <Trash2 size={14} />
-              </button>
-            </div>
-          ))}
+            );
+          })}
         </div>
       )}
     </div>

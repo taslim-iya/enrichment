@@ -9,6 +9,8 @@ import {
   ArrowUpDown,
   BarChart3,
   Settings,
+  LayoutDashboard,
+  Send,
 } from 'lucide-react';
 
 const NAV_ITEMS = [
@@ -16,6 +18,8 @@ const NAV_ITEMS = [
   { label: 'Companies', icon: Building2, path: '/leads' },
   { label: 'Call Sheet', icon: PhoneCall, path: '/call-sheet' },
   { label: 'Enrichment', icon: Zap, path: '/enrichment' },
+  { label: 'Pipeline', icon: LayoutDashboard, path: '/pipeline' },
+  { label: 'Outreach', icon: Send, path: '/outreach' },
   { label: 'Team', icon: Users, path: '/team' },
   { label: 'DealFlow', icon: ArrowLeftRight, path: '/dealflow' },
   { label: 'Import/Export', icon: ArrowUpDown, path: '/import-export' },

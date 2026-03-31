@@ -5,7 +5,7 @@ import {
   ChevronUp, ChevronDown, SlidersHorizontal, X,
 } from 'lucide-react';
 import { db, type Company, upsertCompanies } from '../lib/db';
-import { useSettingsStore } from '../lib/store';
+import { useSettingsStore, type CustomColumn } from '../lib/store';
 import { startDealFlowSync } from '../lib/sync';
 
 // ─── Design tokens ───────────────────────────────────────────────────────────
@@ -71,6 +71,22 @@ const ALL_COLUMNS: ColDef[] = [
 ];
 
 const DEFAULT_COL_KEYS = ALL_COLUMNS.filter(c => c.default).map(c => c.key);
+
+function buildColDefs(customColumns: CustomColumn[]): ColDef[] {
+  const custom: ColDef[] = customColumns.map(cc => ({
+    key: cc.key,
+    label: cc.name,
+    default: false,
+    width: cc.width || 140,
+    format: cc.type === 'currency' ? 'currency'
+      : cc.type === 'number' ? 'number'
+      : cc.type === 'date' ? 'date'
+      : undefined,
+    customType: cc.type,
+    customOptions: cc.options,
+  } as ColDef & { customType?: string; customOptions?: string[] }));
+  return [...ALL_COLUMNS, ...custom];
+}
 
 // ─── Formatters ──────────────────────────────────────────────────────────────
 
@@ -302,6 +318,45 @@ function Cell({ col, company, width }: { col: ColDef; company: Company; width: n
     );
   }
 
+  // Custom column type rendering
+  const customType = (col as ColDef & { customType?: string; customOptions?: string[] }).customType;
+  const customOptions = (col as ColDef & { customType?: string; customOptions?: string[] }).customOptions;
+
+  if (customType === 'url' && raw) {
+    const href = String(raw).startsWith('http') ? String(raw) : `https://${raw}`;
+    return (
+      <td style={{ padding: '10px 16px', maxWidth: width, overflow: 'hidden' }}>
+        <a href={href} target="_blank" rel="noopener noreferrer" onClick={e => e.stopPropagation()}
+          style={{ fontSize: 13, color: STRIPE.primary, textDecoration: 'none', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', display: 'block' }}>
+          {String(raw).replace(/^https?:\/\//, '')}
+        </a>
+      </td>
+    );
+  }
+  if (customType === 'email' && raw) {
+    return (
+      <td style={{ padding: '10px 16px' }}>
+        <a href={`mailto:${raw}`} onClick={e => e.stopPropagation()} style={{ fontSize: 13, color: STRIPE.primary, textDecoration: 'none' }}>{String(raw)}</a>
+      </td>
+    );
+  }
+  if (customType === 'phone' && raw) {
+    return (
+      <td style={{ padding: '10px 16px' }}>
+        <a href={`tel:${raw}`} onClick={e => e.stopPropagation()} style={{ fontSize: 13, color: STRIPE.textSecondary, textDecoration: 'none' }}>{String(raw)}</a>
+      </td>
+    );
+  }
+  if (customType === 'dropdown' && customOptions && raw) {
+    return (
+      <td style={{ padding: '10px 16px' }}>
+        <span style={{ fontSize: 12, fontWeight: 500, background: '#EEF2FF', color: STRIPE.primary, borderRadius: 6, padding: '2px 8px' }}>
+          {String(raw)}
+        </span>
+      </td>
+    );
+  }
+
   const formatted = formatCell(raw, col.format);
   const isTruncatable = !col.format && formatted.length > 30;
 
@@ -334,7 +389,10 @@ export default function LeadsPage() {
     dealflowUrl, apiKey, setLastSync,
     visibleColumns, setVisibleColumns,
     columnWidths, updateColumnWidth,
+    customColumns,
   } = useSettingsStore();
+
+  const ALL_COLS_WITH_CUSTOM = useMemo(() => buildColDefs(customColumns), [customColumns]);
 
   const [companies, setCompanies]       = useState<Company[]>([]);
   const [search, setSearch]             = useState('');
@@ -345,6 +403,12 @@ export default function LeadsPage() {
   const [filterTeamMember, setFilterTeamMember] = useState('');
   const [teamMembers, setTeamMembers] = useState<{ id: number; name: string }[]>([]);
   const [assignments, setAssignments] = useState<{ lead_id: number; team_member_id: number }[]>([]);
+  // Bulk selection
+  const [selectedIds, setSelectedIds] = useState<Set<number>>(new Set());
+  const [bulkStatus, setBulkStatus] = useState('');
+  const [bulkMember, setBulkMember] = useState('');
+  const [bulkAssignTo, setBulkAssignTo] = useState('');
+  const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
   const [sortKey, setSortKey]           = useState('company_name');
   const [sortDir, setSortDir]           = useState<SortDir>('asc');
   const [page, setPage]                 = useState(1);
@@ -361,7 +425,7 @@ export default function LeadsPage() {
   const activeCols = visibleColumns.length > 0 ? visibleColumns : DEFAULT_COL_KEYS;
   const { columnOrder, setColumnOrder } = useSettingsStore();
   const visibleColDefs = useMemo(() => {
-    const cols = ALL_COLUMNS.filter(c => activeCols.includes(c.key));
+    const cols = ALL_COLS_WITH_CUSTOM.filter(c => activeCols.includes(c.key));
     if (columnOrder.length > 0) {
       const orderMap = new Map(columnOrder.map((k, i) => [k, i]));
       cols.sort((a, b) => {
@@ -371,7 +435,7 @@ export default function LeadsPage() {
       });
     }
     return cols;
-  }, [activeCols, columnOrder]);
+  }, [activeCols, columnOrder, ALL_COLS_WITH_CUSTOM]);
 
   // Drag-to-reorder state
   const [dragCol, setDragCol] = useState<string | null>(null);
@@ -539,6 +603,98 @@ export default function LeadsPage() {
       : [...activeCols, key];
     // preserve ALL_COLUMNS order
     setVisibleColumns(ALL_COLUMNS.map(c => c.key).filter(k => next.includes(k)));
+  };
+
+  // ── Bulk action handlers ──────────────────────────────────────────────────
+
+  const visibleIds = useMemo(
+    () => filtered.slice(0, PAGE_SIZE * page).map(c => c.id).filter(Boolean) as number[],
+    [filtered, page]
+  );
+
+  const allVisibleSelected = visibleIds.length > 0 && visibleIds.every(id => selectedIds.has(id));
+
+  const toggleAll = () => {
+    if (allVisibleSelected) {
+      const next = new Set(selectedIds);
+      visibleIds.forEach(id => next.delete(id));
+      setSelectedIds(next);
+    } else {
+      const next = new Set(selectedIds);
+      visibleIds.forEach(id => next.add(id));
+      setSelectedIds(next);
+    }
+  };
+
+  const toggleOne = (id: number) => {
+    const next = new Set(selectedIds);
+    if (next.has(id)) next.delete(id); else next.add(id);
+    setSelectedIds(next);
+  };
+
+  const handleBulkStatus = async (status: string) => {
+    if (!status) return;
+    for (const id of selectedIds) {
+      await db.companies.update(id, { status });
+    }
+    await loadCompanies();
+    setBulkStatus('');
+    setSelectedIds(new Set());
+  };
+
+  const handleBulkAssign = async (memberId: string) => {
+    if (!memberId) return;
+    const mId = Number(memberId);
+    const now = new Date().toISOString();
+    for (const id of selectedIds) {
+      const existing = assignments.find(a => a.lead_id === id && a.team_member_id === mId);
+      if (!existing) {
+        await db.lead_assignments.add({ lead_id: id, team_member_id: mId, assigned_at: now });
+      }
+    }
+    const assigns = await db.lead_assignments.toArray();
+    setAssignments(assigns.map(a => ({ lead_id: a.lead_id, team_member_id: a.team_member_id })));
+    setBulkAssignTo('');
+    setSelectedIds(new Set());
+  };
+
+  const handleAddToCallSheet = async () => {
+    const now = new Date().toISOString();
+    for (const id of selectedIds) {
+      const existing = await db.call_sheet.where('company_id').equals(id).first();
+      if (!existing) {
+        await db.call_sheet.add({ company_id: id, called: false, added_at: now });
+      }
+    }
+    setSelectedIds(new Set());
+  };
+
+  const handleExportSelected = () => {
+    const selectedCompanies = companies.filter(c => c.id && selectedIds.has(c.id));
+    const headers = ['company_name', 'industry', 'geography', 'employees', 'revenue', 'website', 'email', 'status'];
+    const rows = selectedCompanies.map(c =>
+      headers.map(h => {
+        const v = c[h as keyof Company];
+        if (Array.isArray(v)) return '';
+        return String(v ?? '').replace(/,/g, ';');
+      }).join(',')
+    );
+    const csv = [headers.join(','), ...rows].join('\n');
+    const blob = new Blob([csv], { type: 'text/csv' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url; a.download = 'selected-companies.csv'; a.click();
+    URL.revokeObjectURL(url);
+    setSelectedIds(new Set());
+  };
+
+  const handleBulkDelete = async () => {
+    for (const id of selectedIds) {
+      await db.companies.delete(id);
+    }
+    await loadCompanies();
+    setSelectedIds(new Set());
+    setShowDeleteConfirm(false);
   };
 
   // ── Render ────────────────────────────────────────────────────────────────
@@ -877,6 +1033,58 @@ export default function LeadsPage() {
               </tbody>
             </table>
           </div>
+
+          {/* ── Bulk Action Bar ── */}
+          {selectedIds.size > 0 && (
+            <div style={{
+              position: 'fixed', bottom: 0, left: 256, right: 0, zIndex: 50,
+              background: '#0A2540', color: '#fff', padding: '12px 24px',
+              display: 'flex', alignItems: 'center', gap: 16,
+              boxShadow: '0 -4px 12px rgba(0,0,0,0.15)',
+            }}>
+              <span style={{ fontWeight: 600, fontSize: 14 }}>{selectedIds.size} selected</span>
+              <select value={bulkStatus} onChange={async (e) => {
+                const s = e.target.value; if (!s) return;
+                for (const id of selectedIds) { await db.companies.update(id, { status: s }); }
+                setBulkStatus(''); setSelectedIds(new Set()); loadCompanies();
+              }} style={{ background: '#1a3a5c', color: '#fff', border: '1px solid #2a4a6c', borderRadius: 6, padding: '6px 12px', fontSize: 13 }}>
+                <option value="">Change Status...</option>
+                {['New','Researching','Contacted','Responded','Meeting Scheduled','Proposal Sent','Won','Lost','On Hold'].map(s => (
+                  <option key={s} value={s}>{s}</option>
+                ))}
+              </select>
+              <select value={bulkMember} onChange={async (e) => {
+                const mid = Number(e.target.value); if (!mid) return;
+                const now = new Date().toISOString();
+                for (const cid of selectedIds) {
+                  const exists = await db.lead_assignments.where({ lead_id: cid, team_member_id: mid }).first();
+                  if (!exists) await db.lead_assignments.add({ lead_id: cid, team_member_id: mid, assigned_at: now });
+                }
+                setBulkMember(''); setSelectedIds(new Set());
+                const assigns = await db.lead_assignments.toArray();
+                setAssignments(assigns.map(a => ({ lead_id: a.lead_id, team_member_id: a.team_member_id })));
+              }} style={{ background: '#1a3a5c', color: '#fff', border: '1px solid #2a4a6c', borderRadius: 6, padding: '6px 12px', fontSize: 13 }}>
+                <option value="">Assign to...</option>
+                {teamMembers.map(m => <option key={m.id} value={m.id}>{m.name}</option>)}
+              </select>
+              <button onClick={() => {
+                const rows = companies.filter(c => c.id && selectedIds.has(c.id));
+                const headers = visibleColDefs.map(c => c.label);
+                const csv = [headers.join(','), ...rows.map(r =>
+                  visibleColDefs.map(c => `"${String(r[c.key as keyof typeof r] || '').replace(/"/g, '""')}"`).join(',')
+                )].join('\n');
+                const blob = new Blob([csv], { type: 'text/csv' });
+                const a = document.createElement('a'); a.href = URL.createObjectURL(blob);
+                a.download = `export-${selectedIds.size}-companies.csv`; a.click();
+              }} style={{ background: STRIPE.primary, color: '#fff', border: 'none', borderRadius: 6, padding: '6px 16px', fontSize: 13, cursor: 'pointer' }}>
+                Export Selected
+              </button>
+              <button onClick={() => setSelectedIds(new Set())}
+                style={{ background: 'transparent', color: '#8898aa', border: '1px solid #2a4a6c', borderRadius: 6, padding: '6px 12px', fontSize: 13, cursor: 'pointer', marginLeft: 'auto' }}>
+                Clear Selection
+              </button>
+            </div>
+          )}
 
           {/* Result count + Load More */}
           <div style={{

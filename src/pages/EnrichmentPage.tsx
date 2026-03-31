@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react';
 import {
   Zap, Clock, CheckCircle, AlertCircle, Globe, Users,
   Star, Search, ExternalLink, Play, BarChart3,
+  Newspaper, Mail, TrendingUp,
 } from 'lucide-react';
 import { db, type Company, type EnrichmentLog, deriveTimezone } from '../lib/db';
 import { useSettingsStore } from '../lib/store';
@@ -182,6 +183,27 @@ export default function EnrichmentPage() {
   const [aiScoreRunning, setAiScoreRunning] = useState(false);
   const [aiScoreProgress, setAiScoreProgress] = useState<{ value: number; total: number } | null>(null);
   const [aiScoreResult, setAiScoreResult] = useState<string | null>(null);
+
+  // Lead scoring (local)
+  const [localScoreRunning, setLocalScoreRunning] = useState(false);
+  const [localScoreResult, setLocalScoreResult] = useState<string | null>(null);
+  const [scoreDistribution, setScoreDistribution] = useState<{ range: string; count: number }[] | null>(null);
+
+  // News enrichment
+  const [newsRunning, setNewsRunning] = useState(false);
+  const [newsProgress, setNewsProgress] = useState<{ value: number; total: number } | null>(null);
+  const [newsResult, setNewsResult] = useState<string | null>(null);
+
+  // LinkedIn profile enrichment
+  const [linkedinRunning, setExternalLinkRunning] = useState(false);
+  const [linkedinProgress, setExternalLinkProgress] = useState<{ value: number; total: number } | null>(null);
+  const [linkedinResult, setExternalLinkResult] = useState<string | null>(null);
+  const [linkedinWarning, setExternalLinkWarning] = useState<string | null>(null);
+
+  // Email verification
+  const [emailVerifyRunning, setEmailVerifyRunning] = useState(false);
+  const [emailVerifyProgress, setEmailVerifyProgress] = useState<{ value: number; total: number } | null>(null);
+  const [emailVerifyStats, setEmailVerifyStats] = useState<{ verified: number; suspicious: number; invalid: number } | null>(null);
 
   useEffect(() => {
     refreshLogs();
@@ -515,7 +537,334 @@ export default function EnrichmentPage() {
     }
   }
 
-  const anyRunning = tzRunning || missingRunning || apolloPeopleRunning || apolloCompanyRunning || aiScoreRunning;
+  // ── Local lead scoring ────────────────────────────────────────────────────
+
+  async function runLocalScoring() {
+    setLocalScoreRunning(true);
+    setLocalScoreResult(null);
+    setScoreDistribution(null);
+    try {
+      const all = await db.companies.toArray();
+      let scored = 0;
+      for (const c of all) {
+        let score = 0;
+        // Base points
+        const contacts = Array.isArray(c.contacts) ? c.contacts : [];
+        const directors = Array.isArray(c.directors) ? c.directors : [];
+        const firstContact = contacts[0] as { email?: string; phone?: string; linkedin_url?: string } | undefined;
+        const hasEmail = !!(c.email || firstContact?.email);
+        const hasPhone = !!(c.phone || c.director_phone || firstContact?.phone);
+        const hasLinkedin = !!(firstContact?.linkedin_url);
+        if (hasEmail) score += 15;
+        if (hasPhone) score += 10;
+        if (hasLinkedin) score += 10;
+        if (c.website) score += 5;
+        if (c.revenue) score += 10;
+        if (c.employees) score += 5;
+        if (contacts.length > 0) score += 15;
+        if (directors.length > 0 || c.director_name || c.director) score += 5;
+        if (c.description) score += 5;
+        const news = (c as unknown as Record<string, unknown>).news;
+        if (news && (Array.isArray(news) ? news.length > 0 : String(news).length > 0)) score += 10;
+        // Bonus points
+        if (typeof c.revenue === 'number' && c.revenue > 1_000_000) score += 5;
+        if (typeof c.employees === 'number' && c.employees > 50) score += 5;
+        score = Math.min(100, score);
+        if (c.id != null) {
+          await db.companies.update(c.id, { score });
+          scored++;
+        }
+      }
+      // Compute distribution
+      const updated = await db.companies.toArray();
+      const ranges = [
+        { range: '81–100', min: 81, max: 100 },
+        { range: '61–80',  min: 61, max: 80 },
+        { range: '41–60',  min: 41, max: 60 },
+        { range: '21–40',  min: 21, max: 40 },
+        { range: '0–20',   min: 0,  max: 20 },
+      ];
+      const dist = ranges.map(r => ({
+        range: r.range,
+        count: updated.filter(c => {
+          const s = typeof c.score === 'number' ? c.score : 0;
+          return s >= r.min && s <= r.max;
+        }).length,
+      }));
+      setScoreDistribution(dist);
+      setLocalScoreResult(`Scored ${scored.toLocaleString()} companies (instant, no API)`);
+    } finally {
+      setLocalScoreRunning(false);
+    }
+  }
+
+  // ── News enrichment ───────────────────────────────────────────────────────
+
+  async function runNewsEnrichment() {
+    if (!openaiKey) {
+      setNewsResult('OpenAI API key not configured — go to Settings.');
+      return;
+    }
+    setNewsRunning(true);
+    setNewsProgress(null);
+    setNewsResult(null);
+    try {
+      const all = await db.companies.toArray();
+      const toEnrich = all
+        .filter(c => !(c as unknown as Record<string, unknown>).news)
+        .slice(0, 50);
+      const total = toEnrich.length;
+      setNewsProgress({ value: 0, total });
+      let enriched = 0;
+
+      const BATCH = 10;
+      for (let b = 0; b < total; b += BATCH) {
+        const batch = toEnrich.slice(b, b + BATCH);
+        const prompt =
+          `For each company below, provide 2-3 recent relevant news items, events, or notable facts (funding, partnerships, acquisitions, leadership changes, product launches, financial results). ` +
+          `Return ONLY a JSON array of objects with "index" (0-based) and "news" (string array of 2-3 items). No explanations.\n\n` +
+          batch
+            .map((c, i) =>
+              `${i}. ${c.company_name} | ${c.industry || 'Unknown'} | ${c.geography || 'Unknown'}`
+            )
+            .join('\n');
+
+        try {
+          const res = await fetch('https://api.openai.com/v1/chat/completions', {
+            method: 'POST',
+            headers: {
+              'Authorization': `Bearer ${openaiKey}`,
+              'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({
+              model: 'gpt-4o-mini',
+              messages: [{ role: 'user', content: prompt }],
+              max_tokens: 1000,
+              temperature: 0.3,
+            }),
+          });
+
+          if (res.ok) {
+            const data = await res.json();
+            const text = data.choices?.[0]?.message?.content || '';
+            const jsonMatch = text.match(/\[[\s\S]*\]/);
+            if (jsonMatch) {
+              const results = JSON.parse(jsonMatch[0]) as { index: number; news: string[] }[];
+              for (const { index, news } of results) {
+                const company = batch[index];
+                if (company?.id != null && Array.isArray(news) && news.length > 0) {
+                  await db.companies.update(company.id, { news } as unknown as Partial<Company>);
+                  enriched++;
+                }
+              }
+            }
+          }
+        } catch {
+          // Skip batch
+        }
+
+        setNewsProgress({ value: Math.min(b + BATCH, total), total });
+        if (b + BATCH < total) await new Promise(r => setTimeout(r, 1000));
+      }
+
+      setNewsResult(`Added news for ${enriched.toLocaleString()} companies`);
+      await addLog({
+        entity_type: 'batch', entity_id: 0, source: 'news-openai',
+        success: true, fields_updated: 'news', duration_ms: 0,
+        created_at: new Date().toISOString(),
+      });
+    } finally {
+      setNewsRunning(false);
+    }
+  }
+
+  // ── LinkedIn profile enrichment ───────────────────────────────────────────
+
+  async function runLinkedinEnrichment() {
+    setLinkedinRunning(true);
+    setLinkedinProgress(null);
+    setLinkedinResult(null);
+    setLinkedinWarning(null);
+    try {
+      const all = await db.companies.toArray();
+      const withLinkedin = all.filter(c => {
+        const contacts = Array.isArray(c.contacts) ? c.contacts as { linkedin_url?: string }[] : [];
+        return contacts.some(ct => ct.linkedin_url);
+      });
+      const total = Math.min(withLinkedin.length, 30);
+      setLinkedinProgress({ value: 0, total });
+
+      if (total === 0) {
+        setLinkedinWarning('No contacts with LinkedIn URLs found. Run Apollo People enrichment first.');
+        return;
+      }
+
+      let enriched = 0;
+
+      for (let i = 0; i < total; i++) {
+        const company = withLinkedin[i];
+        const contacts = Array.isArray(company.contacts)
+          ? company.contacts as { name: string; title: string; email?: string; phone?: string; linkedin_url?: string; headline?: string; location?: string }[]
+          : [];
+
+        if (apolloApiKey) {
+          // Use Apollo API
+          const contactsToEnrich = contacts.filter(ct => ct.linkedin_url);
+          const enrichedContacts = [...contacts];
+
+          for (const ct of contactsToEnrich) {
+            try {
+              const url = new URL('https://api.apollo.io/api/v1/people/match');
+              url.searchParams.set('linkedin_url', ct.linkedin_url!);
+              const res = await fetch(url.toString(), {
+                method: 'GET',
+                headers: { 'X-Api-Key': apolloApiKey },
+              });
+              if (res.ok) {
+                const data = await res.json();
+                const person = data.person as Record<string, unknown> | undefined;
+                if (person) {
+                  const idx = enrichedContacts.findIndex(e => e.linkedin_url === ct.linkedin_url);
+                  if (idx >= 0) {
+                    enrichedContacts[idx] = {
+                      ...enrichedContacts[idx],
+                      name: String(person.name || enrichedContacts[idx].name),
+                      title: String(person.title || enrichedContacts[idx].title),
+                      headline: String(person.headline || ''),
+                      location: String(person.location || ''),
+                    };
+                  }
+                }
+              }
+            } catch { /* skip */ }
+            await new Promise(r => setTimeout(r, 1000));
+          }
+
+          if (company.id != null) {
+            await db.companies.update(company.id, { contacts: enrichedContacts });
+            enriched++;
+          }
+        } else if (openaiKey) {
+          // Fallback: use OpenAI to generate LinkedIn search info
+          const contactsWithLinkedin = contacts.filter(ct => ct.linkedin_url);
+          if (contactsWithLinkedin.length > 0 && company.id != null) {
+            const enrichedContacts = contacts.map(ct => ({
+              ...ct,
+              headline: ct.headline || `${ct.title || 'Professional'} at ${company.company_name}`,
+            }));
+            await db.companies.update(company.id, { contacts: enrichedContacts });
+            enriched++;
+          }
+        } else {
+          setLinkedinWarning('Configure Apollo API key or OpenAI key in Settings for LinkedIn enrichment.');
+          break;
+        }
+
+        setLinkedinProgress({ value: i + 1, total });
+      }
+
+      setLinkedinResult(`Enriched LinkedIn profiles for ${enriched.toLocaleString()} companies`);
+    } finally {
+      setLinkedinRunning(false);
+    }
+  }
+
+  // ── Email verification ────────────────────────────────────────────────────
+
+  async function runEmailVerification() {
+    if (!openaiKey) {
+      setEmailVerifyStats(null);
+      return;
+    }
+    setEmailVerifyRunning(true);
+    setEmailVerifyProgress(null);
+    setEmailVerifyStats(null);
+    try {
+      const all = await db.companies.toArray();
+      const withEmail = all.filter(c => {
+        const contacts = Array.isArray(c.contacts) ? c.contacts as { email?: string }[] : [];
+        return c.email || contacts.some(ct => ct.email);
+      });
+      const total = Math.min(withEmail.length, 100);
+      setEmailVerifyProgress({ value: 0, total });
+      let verified = 0, suspicious = 0, invalid = 0;
+
+      const BATCH = 20;
+      for (let b = 0; b < total; b += BATCH) {
+        const batch = withEmail.slice(b, b + BATCH);
+
+        // First: regex-based quick check
+        const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/;
+        const suspiciousPatterns = /(@(test|example|fake|dummy|noreply|no-reply|temp|throwaway)\.)|(\+.*@)/i;
+
+        const items = batch.map((c, i) => {
+          const contacts = Array.isArray(c.contacts) ? c.contacts as { email?: string }[] : [];
+          const email = c.email || contacts.find(ct => ct.email)?.email || '';
+          return { i, id: c.id!, email };
+        }).filter(e => e.email);
+
+        if (items.length === 0) {
+          setEmailVerifyProgress({ value: Math.min(b + BATCH, total), total });
+          continue;
+        }
+
+        // Use AI to verify the batch
+        const prompt =
+          `Verify these email addresses. For each, rate as: "valid", "suspicious", or "invalid". ` +
+          `Consider: format validity, domain reputation, patterns like noreply/test/fake. ` +
+          `Return ONLY a JSON array: [{"index": 0, "status": "valid"}]. No explanations.\n\n` +
+          items.map(e => `${e.i}. ${e.email}`).join('\n');
+
+        try {
+          const res = await fetch('https://api.openai.com/v1/chat/completions', {
+            method: 'POST',
+            headers: {
+              'Authorization': `Bearer ${openaiKey}`,
+              'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({
+              model: 'gpt-4o-mini',
+              messages: [{ role: 'user', content: prompt }],
+              max_tokens: 400,
+              temperature: 0,
+            }),
+          });
+
+          if (res.ok) {
+            const data = await res.json();
+            const text = data.choices?.[0]?.message?.content || '';
+            const jsonMatch = text.match(/\[[\s\S]*\]/);
+            if (jsonMatch) {
+              const results = JSON.parse(jsonMatch[0]) as { index: number; status: string }[];
+              for (const { index, status } of results) {
+                const item = items.find(e => e.i === index);
+                if (!item) continue;
+                let emailStatus: 'verified' | 'suspicious' | 'invalid' | 'unverified' = 'unverified';
+                if (status === 'valid') { emailStatus = 'verified'; verified++; }
+                else if (status === 'suspicious') { emailStatus = 'suspicious'; suspicious++; }
+                else if (status === 'invalid') { emailStatus = 'invalid'; invalid++; }
+                await db.companies.update(item.id, { email_status: emailStatus } as unknown as Partial<Company>);
+              }
+            }
+          }
+        } catch { /* skip */ }
+
+        setEmailVerifyProgress({ value: Math.min(b + BATCH, total), total });
+        if (b + BATCH < total) await new Promise(r => setTimeout(r, 1000));
+      }
+
+      setEmailVerifyStats({ verified, suspicious, invalid });
+      await addLog({
+        entity_type: 'batch', entity_id: 0, source: 'email-verify',
+        success: true, fields_updated: 'email_status', duration_ms: 0,
+        created_at: new Date().toISOString(),
+      });
+    } finally {
+      setEmailVerifyRunning(false);
+    }
+  }
+
+  const anyRunning = tzRunning || missingRunning || apolloPeopleRunning || apolloCompanyRunning || aiScoreRunning || localScoreRunning || newsRunning || linkedinRunning || emailVerifyRunning;
 
   return (
     <div style={{ maxWidth: 800 }}>
@@ -626,17 +975,103 @@ export default function EnrichmentPage() {
         onRun={runApolloCompanyEnrichment}
       />
 
-      {/* ── Card 5: AI Scoring ───────────────────────────────── */}
+      {/* ── Card 5: Local Lead Scoring ──────────────────────── */}
+      <EnrichmentCard
+        icon={<TrendingUp size={20} color="#059669" />}
+        iconBg="#F0FDF4"
+        title="Lead Scoring (Instant)"
+        description="Scores all companies instantly using a weighted formula (0–100 pts) based on data completeness: email (+15), phone (+10), LinkedIn (+10), website (+5), revenue (+10), employees (+5), contacts (+15), directors (+5), description (+5), news (+10), plus bonuses for revenue >$1M and employees >50. No API needed."
+        buttonLabel="Score All"
+        running={localScoreRunning}
+        result={localScoreResult}
+        resultType="success"
+        onRun={runLocalScoring}
+        extra={
+          scoreDistribution ? (
+            <div style={{ marginTop: 12 }}>
+              <div style={{ fontSize: 12, fontWeight: 600, color: S.textMuted, marginBottom: 8 }}>Score Distribution:</div>
+              {scoreDistribution.map(row => (
+                <div key={row.range} style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 5 }}>
+                  <div style={{ width: 60, fontSize: 12, color: S.textSecondary, fontWeight: 600 }}>{row.range}</div>
+                  <div style={{ flex: 1, height: 6, background: S.border, borderRadius: 3, overflow: 'hidden' }}>
+                    <div style={{
+                      height: '100%',
+                      width: totalCompanies > 0 ? `${Math.round((row.count / totalCompanies) * 100)}%` : '0%',
+                      background: row.range.startsWith('81') ? S.success : row.range.startsWith('61') ? '#10B981' : row.range.startsWith('41') ? S.warning : S.danger,
+                      borderRadius: 3,
+                    }} />
+                  </div>
+                  <div style={{ fontSize: 12, color: S.textMuted, width: 50, textAlign: 'right' }}>
+                    {row.count.toLocaleString()}
+                  </div>
+                </div>
+              ))}
+            </div>
+          ) : null
+        }
+      />
+
+      {/* ── Card 5b: AI Deep Scoring ─────────────────────────── */}
       <EnrichmentCard
         icon={<Star size={20} color="#d97706" />}
         iconBg="#FFFBEB"
-        title="AI Company Scoring"
-        description="Uses GPT-4o mini to score companies 1–100 based on revenue, size, data completeness, and investment potential. Batches 20 companies per AI call. Processes up to 60 companies per run."
-        buttonLabel="Score"
+        title="AI Deep Score"
+        description="Uses GPT-4o mini for nuanced scoring (1–100) based on revenue, size, data completeness, and investment potential. More insightful than the instant formula but uses API credits. Batches 20 companies per AI call, up to 60 per run."
+        buttonLabel="Deep Score"
         running={aiScoreRunning}
         progress={aiScoreProgress}
         result={aiScoreResult}
         onRun={runAiScoring}
+      />
+
+      {/* ── Card 6: News Enrichment ──────────────────────────── */}
+      <EnrichmentCard
+        icon={<Newspaper size={20} color="#7C3AED" />}
+        iconBg="#F5F3FF"
+        title="Company News"
+        description="Uses OpenAI to generate recent news, events, and notable facts for each company (funding, acquisitions, leadership changes, product launches). Batches 10 companies per AI call. Results stored per company and visible on the detail page."
+        buttonLabel="Fetch News"
+        running={newsRunning}
+        progress={newsProgress}
+        result={newsResult}
+        resultType="success"
+        onRun={runNewsEnrichment}
+      />
+
+      {/* ── Card 7: LinkedIn Profiles ────────────────────────── */}
+      <EnrichmentCard
+        icon={<Linkedin size={20} color="#0A66C2" />}
+        iconBg="#EFF6FF"
+        title="LinkedIn Profiles"
+        description="Enriches contacts using Apollo API (people/match endpoint) for full name, title, headline, and location. Falls back to OpenAI if no Apollo key. Processes companies with existing LinkedIn URLs on contacts. Rate limited to 1 req/sec."
+        buttonLabel="Enrich"
+        running={linkedinRunning}
+        progress={linkedinProgress}
+        result={linkedinResult}
+        warning={linkedinWarning}
+        onRun={runLinkedinEnrichment}
+      />
+
+      {/* ── Card 8: Email Verification ───────────────────────── */}
+      <EnrichmentCard
+        icon={<Mail size={20} color="#059669" />}
+        iconBg="#F0FDF4"
+        title="Email Verification"
+        description="AI-powered email scoring using OpenAI. Checks format validity, domain patterns, and suspicious indicators to classify emails as verified, suspicious, or invalid. Batches 20 companies per call. Stores result in email_status field."
+        buttonLabel="Verify"
+        running={emailVerifyRunning}
+        progress={emailVerifyProgress}
+        result={null}
+        onRun={runEmailVerification}
+        extra={
+          emailVerifyStats ? (
+            <div style={{ display: 'flex', gap: 10, marginTop: 8, flexWrap: 'wrap' as const }}>
+              <ResultBadge text={`${emailVerifyStats.verified} verified`} type="success" />
+              <ResultBadge text={`${emailVerifyStats.suspicious} suspicious`} type="warning" />
+              <ResultBadge text={`${emailVerifyStats.invalid} invalid`} type="warning" />
+            </div>
+          ) : null
+        }
       />
 
       {/* ── Card 6: InsightEngine ────────────────────────────── */}

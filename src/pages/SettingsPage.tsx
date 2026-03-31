@@ -1,6 +1,6 @@
 import { useState } from 'react';
-import { Eye, EyeOff, RefreshCw, CheckCircle, AlertCircle, ExternalLink, Bot, Zap, Globe } from 'lucide-react';
-import { useSettingsStore } from '../lib/store';
+import { Eye, EyeOff, RefreshCw, CheckCircle, AlertCircle, ExternalLink, Bot, Zap, Globe, Plus, Trash2, Columns } from 'lucide-react';
+import { useSettingsStore, type CustomColumn } from '../lib/store';
 import { upsertCompanies } from '../lib/db';
 import { startDealFlowSync } from '../lib/sync';
 
@@ -142,6 +142,207 @@ function SectionCard({
 }
 
 // ─── Main page ────────────────────────────────────────────────────────────────
+
+function slugify(name: string): string {
+  return name.toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/^_|_$/g, '');
+}
+
+function CustomColumnsSection() {
+  const { customColumns, addCustomColumn, deleteCustomColumn } = useSettingsStore();
+  const [newName, setNewName] = useState('');
+  const [newType, setNewType] = useState<CustomColumn['type']>('text');
+  const [newOptions, setNewOptions] = useState('');
+  const [newAiEnrichable, setNewAiEnrichable] = useState(false);
+  const [error, setError] = useState('');
+
+  const handleAdd = () => {
+    const name = newName.trim();
+    if (!name) { setError('Column name is required.'); return; }
+    const key = slugify(name);
+    if (!key) { setError('Invalid column name.'); return; }
+    if (customColumns.find(c => c.key === key)) {
+      setError(`A column with key "${key}" already exists.`);
+      return;
+    }
+    const col: CustomColumn = {
+      id: `${Date.now()}-${Math.random().toString(36).slice(2)}`,
+      name,
+      key,
+      type: newType,
+      options: newType === 'dropdown' ? newOptions.split(',').map(o => o.trim()).filter(Boolean) : undefined,
+      aiEnrichable: newAiEnrichable,
+      width: 140,
+      created_at: new Date().toISOString(),
+    };
+    addCustomColumn(col);
+    setNewName('');
+    setNewType('text');
+    setNewOptions('');
+    setNewAiEnrichable(false);
+    setError('');
+  };
+
+  const typeLabel = (t: CustomColumn['type']) => ({
+    text: 'Text', number: 'Number', currency: 'Currency',
+    date: 'Date', url: 'URL', email: 'Email', phone: 'Phone', dropdown: 'Dropdown',
+  }[t] || t);
+
+  return (
+    <div style={{
+      background: S.card, border: `1px solid ${S.border}`,
+      borderRadius: 12, padding: 24, marginBottom: 20,
+      boxShadow: '0 1px 3px rgba(0,0,0,0.04)',
+    }}>
+      <div style={{ display: 'flex', gap: 14, marginBottom: 20 }}>
+        <div style={{
+          width: 40, height: 40, borderRadius: 10, background: '#F0FDF4',
+          display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0,
+        }}>
+          <Columns size={18} color={S.success} />
+        </div>
+        <div>
+          <div style={{ fontSize: 15, fontWeight: 600, color: S.textPrimary }}>Custom Columns</div>
+          <div style={{ fontSize: 13, color: S.textMuted, marginTop: 2 }}>
+            Add custom fields that appear in the Leads table. Mark as AI Enrichable to fill them automatically.
+          </div>
+        </div>
+      </div>
+
+      {/* Existing columns */}
+      {customColumns.length > 0 && (
+        <div style={{ marginBottom: 20 }}>
+          {customColumns.map(col => (
+            <div key={col.id} style={{
+              display: 'flex', alignItems: 'center', gap: 12,
+              padding: '10px 14px', background: S.bg,
+              border: `1px solid ${S.border}`, borderRadius: 8, marginBottom: 8,
+            }}>
+              <div style={{ flex: 1 }}>
+                <div style={{ fontSize: 14, fontWeight: 500, color: S.textPrimary }}>{col.name}</div>
+                <div style={{ display: 'flex', gap: 8, marginTop: 2 }}>
+                  <span style={{
+                    fontSize: 11, background: '#EEF2FF', color: S.primary,
+                    padding: '1px 7px', borderRadius: 8, fontWeight: 500,
+                  }}>{typeLabel(col.type)}</span>
+                  <span style={{ fontSize: 11, color: S.textMuted }}>key: {col.key}</span>
+                  {col.aiEnrichable && (
+                    <span style={{
+                      fontSize: 11, background: '#F0FDF4', color: S.success,
+                      padding: '1px 7px', borderRadius: 8, fontWeight: 500,
+                    }}>AI Enrichable</span>
+                  )}
+                  {col.options && col.options.length > 0 && (
+                    <span style={{ fontSize: 11, color: S.textMuted }}>
+                      [{col.options.slice(0, 3).join(', ')}{col.options.length > 3 ? '…' : ''}]
+                    </span>
+                  )}
+                </div>
+              </div>
+              <button
+                onClick={() => deleteCustomColumn(col.id)}
+                style={{
+                  background: 'none', border: 'none', cursor: 'pointer',
+                  color: S.textMuted, padding: 4,
+                  display: 'flex', alignItems: 'center',
+                }}
+                title="Delete column"
+              >
+                <Trash2 size={14} />
+              </button>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {/* Add new column form */}
+      <div style={{ borderTop: customColumns.length > 0 ? `1px solid ${S.border}` : 'none', paddingTop: customColumns.length > 0 ? 20 : 0 }}>
+        <div style={{ fontSize: 13, fontWeight: 600, color: S.textSecondary, marginBottom: 12 }}>Add Column</div>
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 140px', gap: 10, marginBottom: 10 }}>
+          <div>
+            <label style={{ display: 'block', fontSize: 12, fontWeight: 500, color: S.textSecondary, marginBottom: 4 }}>Column Name</label>
+            <input
+              value={newName}
+              onChange={e => { setNewName(e.target.value); setError(''); }}
+              placeholder="e.g. Funding Round"
+              style={{
+                width: '100%', padding: '9px 12px', border: `1px solid ${S.border}`,
+                borderRadius: 8, fontSize: 14, color: S.textPrimary, background: S.bg,
+                outline: 'none', boxSizing: 'border-box',
+              }}
+            />
+          </div>
+          <div>
+            <label style={{ display: 'block', fontSize: 12, fontWeight: 500, color: S.textSecondary, marginBottom: 4 }}>Type</label>
+            <select
+              value={newType}
+              onChange={e => setNewType(e.target.value as CustomColumn['type'])}
+              style={{
+                width: '100%', padding: '9px 12px', border: `1px solid ${S.border}`,
+                borderRadius: 8, fontSize: 14, color: S.textPrimary, background: S.bg,
+                outline: 'none', cursor: 'pointer',
+              }}
+            >
+              <option value="text">Text</option>
+              <option value="number">Number</option>
+              <option value="currency">Currency</option>
+              <option value="date">Date</option>
+              <option value="url">URL</option>
+              <option value="email">Email</option>
+              <option value="phone">Phone</option>
+              <option value="dropdown">Dropdown</option>
+            </select>
+          </div>
+        </div>
+
+        {newType === 'dropdown' && (
+          <div style={{ marginBottom: 10 }}>
+            <label style={{ display: 'block', fontSize: 12, fontWeight: 500, color: S.textSecondary, marginBottom: 4 }}>
+              Options (comma-separated)
+            </label>
+            <input
+              value={newOptions}
+              onChange={e => setNewOptions(e.target.value)}
+              placeholder="Option A, Option B, Option C"
+              style={{
+                width: '100%', padding: '9px 12px', border: `1px solid ${S.border}`,
+                borderRadius: 8, fontSize: 14, color: S.textPrimary, background: S.bg,
+                outline: 'none', boxSizing: 'border-box',
+              }}
+            />
+          </div>
+        )}
+
+        <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 14 }}>
+          <label style={{ display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer', fontSize: 13, color: S.textSecondary }}>
+            <input
+              type="checkbox"
+              checked={newAiEnrichable}
+              onChange={e => setNewAiEnrichable(e.target.checked)}
+              style={{ width: 16, height: 16, accentColor: S.primary }}
+            />
+            AI Enrichable — fill this field automatically via AI
+          </label>
+        </div>
+
+        {error && (
+          <div style={{ fontSize: 13, color: S.danger, marginBottom: 10 }}>{error}</div>
+        )}
+
+        <button
+          onClick={handleAdd}
+          style={{
+            display: 'flex', alignItems: 'center', gap: 6,
+            padding: '9px 18px', borderRadius: 8, border: 'none',
+            background: S.primary, color: '#fff',
+            fontSize: 14, fontWeight: 600, cursor: 'pointer',
+          }}
+        >
+          <Plus size={14} /> Add Column
+        </button>
+      </div>
+    </div>
+  );
+}
 
 export default function SettingsPage() {
   const {
@@ -419,7 +620,10 @@ export default function SettingsPage() {
         <SaveButton section="ai" onClick={handleSaveAI} />
       </SectionCard>
 
-      {/* ── 5. About ──────────────────────────────────────── */}
+      {/* ── 5. Custom Columns ─────────────────────────────── */}
+      <CustomColumnsSection />
+
+      {/* ── 6. About ──────────────────────────────────────── */}
       <div style={{
         background: S.card,
         border: `1px solid ${S.border}`,

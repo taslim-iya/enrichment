@@ -106,12 +106,25 @@ export interface EnrichmentLog {
   created_at: string;
 }
 
-export interface CallSheetEntry {
+export interface LegacyCallSheetEntry {
   id?: number;
   company_id: number;
   called: boolean;
   notes?: string;
   added_at: string;
+}
+
+export interface CallSheetEntry {
+  id?: number;
+  company_id: number;
+  team_member_id: number;
+  status: string;
+  call_notes: string;
+  call_count: number;
+  last_called?: string;
+  follow_up_date?: string;
+  created_at: string;
+  updated_at: string;
 }
 
 export interface ChatMessage {
@@ -177,7 +190,8 @@ class CorgiDB extends Dexie {
   team_members!: Table<TeamMember>;
   lead_assignments!: Table<LeadAssignment>;
   enrichment_log!: Table<EnrichmentLog>;
-  call_sheet!: Table<CallSheetEntry>;
+  call_sheet!: Table<LegacyCallSheetEntry>;
+  call_sheet_entries!: Table<CallSheetEntry>;
   chat_messages!: Table<ChatMessage>;
 
   constructor() {
@@ -208,6 +222,16 @@ class CorgiDB extends Dexie {
       enrichment_log: '++id, entity_id, source, created_at',
       companies: '++id, dealflow_id, company_name, industry, geography, status, revenue, employees, timezone, updated_at',
       call_sheet: '++id, company_id, called, added_at',
+      chat_messages: '++id, role, created_at',
+    });
+    this.version(5).stores({
+      leads: '++id, company_name, state, industry, status, quality_score, created_at',
+      team_members: '++id, name, email',
+      lead_assignments: '++id, lead_id, team_member_id',
+      enrichment_log: '++id, entity_id, source, created_at',
+      companies: '++id, dealflow_id, company_name, industry, geography, status, revenue, employees, timezone, updated_at',
+      call_sheet: '++id, company_id, called, added_at',
+      call_sheet_entries: '++id, company_id, team_member_id, status, follow_up_date',
       chat_messages: '++id, role, created_at',
     });
   }

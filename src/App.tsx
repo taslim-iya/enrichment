@@ -10,6 +10,8 @@ import ImportExportPage from './pages/ImportExportPage';
 import SettingsPage from './pages/SettingsPage';
 import EnrichmentPage from './pages/EnrichmentPage';
 import JarvisPage from './pages/JarvisPage';
+import PipelinePage from './pages/PipelinePage';
+import OutreachPage from './pages/OutreachPage';
 
 export default function App() {
   return (
@@ -30,6 +32,8 @@ export default function App() {
             <Route path="/import-export" element={<ImportExportPage />} />
             <Route path="/settings" element={<SettingsPage />} />
             <Route path="/enrichment" element={<EnrichmentPage />} />
+            <Route path="/pipeline" element={<PipelinePage />} />
+            <Route path="/outreach" element={<OutreachPage />} />
           </Routes>
         </main>
       </div>
