@@ -677,6 +677,7 @@ export default function SettingsPage() {
               if (!window.confirm('Are you absolutely sure? All company data, enrichment results, and notes will be lost.')) return;
               await db.companies.clear();
               alert('All companies deleted.');
+              window.location.reload();
             }}
             style={{ padding: '8px 18px', borderRadius: 8, border: `1px solid ${S.danger}`, background: '#FEF2F2', color: S.danger, fontSize: 13, fontWeight: 600, cursor: 'pointer' }}
           >
