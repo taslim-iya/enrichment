@@ -13,7 +13,7 @@ import { db, type Lead, type Contact } from '@/lib/db';
 import { ALL_STATUSES, getStatusColor, getScoreColor, formatPhone, INDUSTRY_LABELS } from '@/lib/constants';
 import {
   ArrowLeft, ExternalLink, Save, Loader2, Link2, Phone, Mail,
-  Building2, MapPin, Calendar, Globe, User, FileText,
+  Building2, MapPin,  Globe, User, FileText,
 } from 'lucide-react';
 
 export default function LeadDetailPage() {
@@ -177,12 +177,12 @@ export default function LeadDetailPage() {
                     <p className="text-[#f7f8f8]">{lead.source ?? '-'}</p>
                   </div>
                 </div>
-                {enrichmentData?.description && (
+                {enrichmentData?.description ? (
                   <div>
                     <p className="text-[#95a2b3] text-xs mb-1">Description</p>
                     <p className="text-[#f7f8f8]/80 text-xs">{String(enrichmentData.description)}</p>
                   </div>
-                )}
+                ) : null}
                 <div className="flex flex-wrap gap-2 pt-2">
                   {lead.linkedin_url && (
                     <a href={lead.linkedin_url} target="_blank" rel="noopener noreferrer"

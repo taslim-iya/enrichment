@@ -2,7 +2,6 @@ import { useState, useRef } from 'react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
-import { Badge } from '@/components/ui/badge';
 import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from '@/components/ui/select';
@@ -109,9 +108,9 @@ export default function ImportExportPage() {
         const val = row[header];
         if (val === null || val === undefined || val === '') continue;
         if (field === 'quality_score' || field === 'founded_year') {
-          (lead as Record<string, unknown>)[field] = Number(val) || 0;
+          (lead as unknown as Record<string, unknown>)[field] = Number(val) || 0;
         } else {
-          (lead as Record<string, unknown>)[field] = String(val);
+          (lead as unknown as Record<string, unknown>)[field] = String(val);
         }
       }
       if (lead.company_name) {

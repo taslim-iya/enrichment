@@ -2,7 +2,7 @@ import { useState, useEffect } from 'react';
 import { Card, CardContent } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { db } from '@/lib/db';
-import { Zap, Database, Users, TrendingUp, Clock, CheckCircle2 } from 'lucide-react';
+import { Zap, Database, Users, TrendingUp, Clock } from 'lucide-react';
 
 export default function EnrichmentPage() {
   const [stats, setStats] = useState({
