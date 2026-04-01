@@ -11,6 +11,7 @@ import {
   Settings,
   LayoutDashboard,
   Send,
+  Shield,
 } from 'lucide-react';
 
 const NAV_ITEMS = [
@@ -20,6 +21,7 @@ const NAV_ITEMS = [
   { label: 'Enrichment', icon: Zap, path: '/enrichment' },
   { label: 'Pipeline', icon: LayoutDashboard, path: '/pipeline' },
   { label: 'Outreach', icon: Send, path: '/outreach' },
+  { label: 'Qualification', icon: Shield, path: '/qualification' },
   { label: 'Team', icon: Users, path: '/team' },
   { label: 'DealFlow', icon: ArrowLeftRight, path: '/dealflow' },
   { label: 'Import/Export', icon: ArrowUpDown, path: '/import-export' },

@@ -12,6 +12,7 @@ import EnrichmentPage from './pages/EnrichmentPage';
 import JarvisPage from './pages/JarvisPage';
 import PipelinePage from './pages/PipelinePage';
 import OutreachPage from './pages/OutreachPage';
+import QualificationPage from './pages/QualificationPage';
 
 export default function App() {
   return (
@@ -34,6 +35,7 @@ export default function App() {
             <Route path="/enrichment" element={<EnrichmentPage />} />
             <Route path="/pipeline" element={<PipelinePage />} />
             <Route path="/outreach" element={<OutreachPage />} />
+            <Route path="/qualification" element={<QualificationPage />} />
           </Routes>
         </main>
       </div>
