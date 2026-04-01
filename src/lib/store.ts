@@ -51,7 +51,7 @@ export const useSettingsStore = create<SettingsState>()(
   persist(
     (set) => ({
       dealflowUrl: 'https://dealflowa9.netlify.app',
-      apiKey: '',
+      apiKey: '32bdaa77-de32-44cd-a5b6-7d524ba4ecde',
       lastSyncTime: undefined,
       lastSyncCount: undefined,
       columnWidths: {},
@@ -79,6 +79,19 @@ export const useSettingsStore = create<SettingsState>()(
       deleteCustomColumn: (id) =>
         set((state) => ({ customColumns: state.customColumns.filter(c => c.id !== id) })),
     }),
-    { name: 'corgi-settings-v3' }
+    {
+      name: 'corgi-settings-v4',
+      merge: (persisted: unknown, current: SettingsState) => {
+        const p = persisted as Partial<SettingsState> || {};
+        return {
+          ...current,
+          ...p,
+          // Force-fill empty API keys with defaults
+          apiKey: p.apiKey || '32bdaa77-de32-44cd-a5b6-7d524ba4ecde',
+          dealflowUrl: p.dealflowUrl || 'https://dealflowa9.netlify.app',
+          openaiApiKey: p.openaiApiKey || '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',
+        };
+      },
+    }
   )
 );
